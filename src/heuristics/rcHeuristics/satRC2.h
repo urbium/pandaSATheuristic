@@ -393,23 +393,23 @@ private:
         //     }
         // }
 
-        // for (int a1 = 1; a1 <= numActions; a1++){
-        //     // if (a1 == goalAction){
-        //     //     continue;
-        //     // }
-        //     for (int a2 = 1; a2 <= numActions; a2++){
-        //         // if (a2 == goalAction){
-        //         //     continue;
-        //         // }
-        //         for (int a3 = 1; a3 <= numActions; a3++){
-        //             // if (a3 == goalAction){
-        //             //     continue;
-        //             // }
-        //             addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
-        //             numClauses = numClauses+1;
-        //         }
-        //     }
-        // }
+        for (int a1 = 1; a1 <= numActions; a1++){
+            // if (a1 == goalAction){
+            //     continue;
+            // }
+            for (int a2 = 1; a2 <= numActions; a2++){
+                // if (a2 == goalAction){
+                //     continue;
+                // }
+                for (int a3 = 1; a3 <= numActions; a3++){
+                    // if (a3 == goalAction){
+                    //     continue;
+                    // }
+                    addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+                    numClauses = numClauses+1;
+                }
+            }
+        }
 
         gettimeofday(&tp, NULL);
         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
