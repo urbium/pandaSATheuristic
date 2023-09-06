@@ -242,17 +242,36 @@ namespace progression {
 			int **reachable = nullptr;
 
 			void writeToPDDL(string dName, string pName);
-
-	
-
 			bool isMethodTotallyOrdered(int method);
 			void computeTransitiveClosureOfMethodOrderings();
 			void buildOrderingDatastructures();
 
 			void calcSCCs();
 
+            // guaranteed/possible effects
+            vector<int>* poss_eff_positive;
+            vector<int>* poss_eff_negative;
+            vector<int>* eff_positive;
+            vector<int>* eff_negative;
+            vector<int>* preconditions;
 
-        void calcAddToActionMapping();
+            vector<int>* poss_pos_m;
+            vector<int>* poss_neg_m;
+            vector<int>* eff_pos_m;
+            vector<int>* eff_neg_m;
+            vector<int>* prec_m;
+
+            // add effects transformation
+            bool** primitveAddEffectsList = nullptr;
+
+            void calcAddToActionMapping();
+            int pruneWithMethods(searchNode *n);
+            vector<int> pruneAndDecompose(searchNode *n);
+            int pruneNP(searchNode *n);
+            bool recursivePrune(searchNode *n, planStep *ps, vector<bool> s);
+            searchNode *decomposeMiddle(searchNode *n, int taskNo, int method);
+
+            void printNodeTasks(searchNode *n);
 
     private:
 			bool first = true;
@@ -271,6 +290,12 @@ namespace progression {
 					, int parentSolutionStepIndex
 #endif
 					);
+
+            pair<planStep **, planStep **> initializeFirstPS(searchNode *parent, int method
+#ifdef TRACESOLUTION
+                     , int parentSolutionStepIndex
+#endif
+            );
 
 			int psID = 0;
 

@@ -6,6 +6,7 @@
  */
 
 #include "Model.h"
+#include "PrecsEffs.h"
 
 #include <iostream>
 #include <fstream>
@@ -232,6 +233,18 @@ newlyReachedMLMs = new noDelIntSet();
 
 		delete[] minEstimatedCosts;
 		delete[] minImpliedDistance;
+
+        delete[] poss_eff_positive;
+        delete[] poss_eff_negative;
+        delete[] eff_positive;
+        delete[] eff_negative;
+        delete[] preconditions;
+
+        delete[] poss_pos_m;
+        delete[] poss_neg_m;
+        delete[] eff_pos_m;
+        delete[] eff_neg_m;
+        delete[] prec_m;
 	}
 
 	void Model::updateTaskCounterA(searchNode *n, searchNode *parent, int action) {
@@ -600,6 +613,172 @@ newlyReachedMLMs = new noDelIntSet();
 #endif
 	}
 
+    searchNode *Model::decomposeMiddle(searchNode *n, int taskNo, int method) {
+
+	    planStep *decomposed;
+	    //planStep *decSuccessor;
+        if (n->numAbstract > 0) {
+            decomposed = n->unconstraintAbstract[0];
+        } else {
+            decomposed = n->unconstraintPrimitive[0];
+        }
+#ifdef TRACESOLUTION
+        int mySolutionStepInstanceNumber = progression::currentSolutionStepInstanceNumber++;
+#endif
+
+        assert(taskNo > 0);
+        int counter = 0;
+        while (counter < taskNo) {
+            //decSuccessor = decomposed;
+            decomposed = decomposed->successorList[0];
+            counter++;
+        }
+        assert(!isPrimitive[decomposed->task]);
+        assert(decomposedTask[method] == decomposed->task);
+
+        searchNode *result = new searchNode;
+        result->state = n->state;
+        // prepare data structures
+        // Beginning of search nodes remains the same
+
+        result->numPrimitive = n->numPrimitive;
+        if (result->numPrimitive > 0) {
+            result->unconstraintPrimitive = new planStep *[result->numPrimitive];
+            /*for (int i = 0; i < result->numPrimitive; i++) {
+                result->unconstraintPrimitive[i] = n->unconstraintPrimitive[i];
+            }*/
+        } else {
+            result->unconstraintPrimitive = nullptr;
+        }
+
+        result->numAbstract = n->numAbstract;
+        if (result->numAbstract > 0) {
+            result->unconstraintAbstract = new planStep *[result->numAbstract];
+            /*for (int i = 0; i < result->numAbstract; i++) {
+                result->unconstraintAbstract[i] = n->unconstraintAbstract[i];
+            }*/
+        } else {
+            result->unconstraintAbstract = nullptr;
+        }
+
+        // add the successors of the decomposed task as successor of the method's last tasks
+        pair<planStep **, planStep **> mInstance = initializeMethod(method
+#ifdef TRACESOLUTION
+                , mySolutionStepInstanceNumber
+#endif
+        ); // returns first and last tasks
+        for (int i = 0; i < numLastTasks[method]; i++) {
+            mInstance.second[i]->successorList =
+                    new planStep *[decomposed->numSuccessors];
+            mInstance.second[i]->numSuccessors = decomposed->numSuccessors;
+            for (int j = 0; j < decomposed->numSuccessors; j++) {
+                mInstance.second[i]->successorList[j] =
+                        decomposed->successorList[j];
+            }
+        }
+
+        pair<planStep **, planStep **> firstPS = initializeFirstPS(n, taskNo
+#ifdef TRACESOLUTION
+                , mySolutionStepInstanceNumber
+#endif
+        );
+
+        firstPS.second[0]->successorList[0] = mInstance.first[0];
+        mInstance.first[0]->pointersToMe = 1;
+
+        if (n->numAbstract > 0) {
+            result->unconstraintAbstract[0] = firstPS.first[0];
+        } else {
+            result->unconstraintPrimitive[0] = firstPS.first[0];
+        }
+
+        /*int primI = n->numPrimitive;
+        int absI = n->numAbstract - 1;
+        for (int i = 0; i < numFirstTasks[method]; i++) {
+            if (isPrimitive[mInstance.first[i]->task]) {
+                result->unconstraintPrimitive[primI] = mInstance.first[i];
+                if (progressEffectLess) {
+                    if ((this->numAdds[result->unconstraintPrimitive[primI]->task] == 0)
+                        && (this->numDels[result->unconstraintPrimitive[primI]->task]
+                            == 0)
+                        && (this->isApplicable(result,
+                                               result->unconstraintPrimitive[primI]->task))) {
+                        effectLess->push(primI);
+                    }
+                }
+                primI++;
+            } else {
+                result->unconstraintAbstract[absI] = mInstance.first[i];
+#ifdef ONEMODMETH
+                if (numMethodsForTask[result->unconstraintAbstract[absI]->task]
+						== 1)
+					oneMod->push(absI);
+#endif
+                absI++;
+            }
+        }*/
+        delete[] firstPS.first;
+        delete[] firstPS.second;
+        delete[] mInstance.first;
+        delete[] mInstance.second;
+
+        result->solution = new solutionStep();
+        result->solution->task = decomposed->task;
+        result->solution->method = method;
+        result->solution->prev = n->solution;
+#ifdef TRACESOLUTION
+        result->solution->mySolutionStepInstanceNumber = mySolutionStepInstanceNumber;
+        result->solution->myPositionInParent = decomposed->myPositionInParent;
+        result->solution->parentSolutionStepInstanceNumber = decomposed->parentSolutionStepInstanceNumber;
+#endif
+        result->solution->pointersToMe = 1;
+        result->modificationDepth = n->modificationDepth + 1;
+        result->mixedModificationDepth = n->mixedModificationDepth + 1;
+        result->actionCosts = n->actionCosts;
+
+        // maintain pointer counter
+        /*for (int i = 0; i < result->numPrimitive; i++) {
+            result->unconstraintPrimitive[i]->pointersToMe++;
+        }
+        for (int i = 0; i < result->numAbstract; i++) {
+            result->unconstraintAbstract[i]->pointersToMe++;
+        }*/
+        for (int i = 0; i < decomposed->numSuccessors; i++) {
+            planStep *succ = decomposed->successorList[i];
+            succ->pointersToMe += numLastTasks[method];
+        }
+
+        if (n->solution != nullptr)
+            n->solution->pointersToMe++;
+
+        if (trackTasksInTN) {
+            updateTaskCounterM(result, n, method);
+        }
+
+        if (maintainTaskReachability != mtrNO) {
+            updateReachability(result);
+        }
+
+        /*if (n->numAbstract > 0) {
+            decomposed = result->unconstraintAbstract[0];
+        } else {
+            decomposed = result->unconstraintPrimitive[0];
+        }
+        while (true){
+            cout << decomposed->task << " ";
+            if (decomposed->numSuccessors != 0) {
+                decomposed = decomposed->successorList[0];
+            } else {
+                break;
+            }
+
+        }
+        cout << endl;*/
+
+        return result;
+
+	}
+
 
 	searchNode *Model::decompose(searchNode *n, int taskNo, int method) {
 		planStep *decomposed = n->unconstraintAbstract[taskNo];
@@ -954,6 +1133,50 @@ newlyReachedMLMs = new noDelIntSet();
 
 		return result;
 	}
+
+
+    pair<planStep **, planStep **> Model::initializeFirstPS(searchNode *parent, int numPS
+#ifdef TRACESOLUTION
+            , int parentSolutionStepIndex
+#endif
+    ) {
+        planStep *parentPS;
+        if (parent->numAbstract > 0) {
+            parentPS = parent->unconstraintAbstract[0];
+        } else {
+            parentPS = parent->unconstraintPrimitive[0];
+        }
+
+
+        planStep **stepPointerList = new planStep *[numPS];
+        for (int i = 0; i < numPS; i++) {
+            stepPointerList[i] = new planStep;
+            stepPointerList[i]->id = ++this->psID;
+            stepPointerList[i]->task = parentPS->task;
+            stepPointerList[i]->pointersToMe = 1;
+#ifdef TRACESOLUTION
+            stepPointerList[i]->parentSolutionStepInstanceNumber = parentPS->parentSolutionStepInstanceNumber;
+            stepPointerList[i]->myPositionInParent = parentPS->myPositionInParent;
+#endif
+            parentPS = parentPS->successorList[0];
+        }
+        for (int i = 0; i < numPS-1; i++) {
+            stepPointerList[i]->numSuccessors = 1;
+            stepPointerList[i]->successorList = new planStep *[1];
+            stepPointerList[i]->successorList[0] = stepPointerList[i+1];
+        }
+        stepPointerList[numPS-1]->numSuccessors = 1;
+        stepPointerList[numPS-1]->successorList = new planStep *[1];
+
+        planStep **firsts = new planStep *[1];
+        planStep **lasts = new planStep *[1];
+        firsts[0] = stepPointerList[0];
+        lasts[0] = stepPointerList[numPS-1];
+
+        delete[] stepPointerList;
+        return make_pair(firsts, lasts);
+    }
+
 
 	pair<planStep **, planStep **> Model::initializeMethod(int method
 #ifdef TRACESOLUTION
@@ -1410,6 +1633,42 @@ newlyReachedMLMs = new noDelIntSet();
 		return true;
 	}
 
+    void Model::printNodeTasks(searchNode *n) {
+        planStep *decomposed;
+        if (n->numAbstract > 0) {
+            decomposed = n->unconstraintAbstract[0];
+        } else {
+            decomposed = n->unconstraintPrimitive[0];
+        }
+        while (true){
+            cout << decomposed->task << " ";
+            if (decomposed->numSuccessors != 0) {
+                decomposed = decomposed->successorList[0];
+            } else {
+                break;
+            }
+
+        }
+        cout << endl;
+
+        if (n->numAbstract > 0) {
+            decomposed = n->unconstraintAbstract[0];
+        } else {
+            decomposed = n->unconstraintPrimitive[0];
+        }
+
+        while (true){
+            cout << decomposed->pointersToMe << "  ";
+            if (decomposed->numSuccessors != 0) {
+                decomposed = decomposed->successorList[0];
+            } else {
+                break;
+            }
+
+        }
+        cout << endl;
+	}
+
 	void Model::updateReachability(searchNode *n) {
 		for (int i = 0; i < n->numAbstract; i++) {
 			if (n->unconstraintAbstract[i]->reachableT == nullptr) {
@@ -1426,7 +1685,7 @@ newlyReachedMLMs = new noDelIntSet();
 	void Model::calcReachability(planStep *ps) {
 		// call for subtasks
 		for (int i = 0; i < ps->numSuccessors; i++) {
-			if (ps->successorList[i]->reachableT == nullptr) {
+			if (ps->successorList[i]->reachableT == nullptr && ps->numSuccessors != 0) {
 				calcReachability(ps->successorList[i]);
 			}
 		}
@@ -2092,6 +2351,28 @@ newlyReachedMLMs = new noDelIntSet();
         if(rintanenInvariants) {
             generateVectorRepresentation();
         }
+
+        // BEGIN: Compute possible effects. Just for dev reason i am using var = 0 (first state variable)
+        cout << "Calculating preconditions and effects of compound tasks... " << endl;
+        int amount_compound_tasks = 0;
+        for (size_t index = 0; index < this->numTasks; index++) {
+            if (!this->isPrimitive[index]) amount_compound_tasks++;
+        }
+
+        this->poss_eff_positive = new vector<int>[amount_compound_tasks];
+        this->poss_eff_negative = new vector<int>[amount_compound_tasks];
+        this->eff_positive = new vector<int>[amount_compound_tasks];
+        this->eff_negative = new vector<int>[amount_compound_tasks];
+        this->preconditions = new vector<int>[amount_compound_tasks];
+
+        this->poss_pos_m = new vector<int>[this->numMethods];
+        this->poss_neg_m = new vector<int>[this->numMethods];
+        this->eff_pos_m = new vector<int>[this->numMethods];
+        this->eff_neg_m = new vector<int>[this->numMethods];
+        this->prec_m = new vector<int>[this->numMethods];
+
+        computeEffectsAndPreconditions(this, poss_eff_positive, poss_eff_negative, eff_positive, eff_negative, preconditions, amount_compound_tasks);
+        // END: Compute effects
 
 #if DLEVEL == 5
 		printActions();
@@ -2968,6 +3249,483 @@ newlyReachedMLMs = new noDelIntSet();
 		pfile.close();
 	}
 	}
+
+int Model::pruneNP(searchNode *n) {
+    vector<bool> currentS = n->state;
+    planStep *currentPS;
+
+    if (n->numAbstract > 0) {
+        currentPS = n->unconstraintAbstract[0];
+    } else if (n->numPrimitive > 0) {
+        currentPS = n->unconstraintPrimitive[0];
+    } else {
+        cout << "seltsamer Fall" << endl;
+    }
+
+    // return recursivePrune(n, currentPS, currentS);
+    bool success = recursivePrune(n, currentPS, currentS);
+    if (success) {
+        return 1;
+    } else {
+        return -1;
+    }
+
+
+
+}
+
+bool Model::recursivePrune(searchNode *n, planStep *ps, vector<bool> s) {
+
+
+    planStep *nextPS;
+
+    // current task is primitive
+    if (isPrimitive[ps->task]) {
+        vector<bool> newS(s);
+        if (numPrecs[ps->task] > 0){
+            for (int i = 0; i < numPrecs[ps->task]; i++) {
+                if (s[precLists[ps->task][i]] != 1) {
+                    //cout << "Pruned because of " << taskNames[currentPS->task] << " " << currentPS->task << " and prec " << factStrs[precLists[currentPS->task][i]] << endl;
+                    return false;
+                }
+
+            }
+        }
+
+        if (numDels[ps->task] > 0){
+            for (int i = 0; i < numDels[ps->task]; i++) {
+                newS[delLists[ps->task][i]] = false;
+                // cout << "Primitive: neg effect " << delLists[currentPS->task][i] << " deleted." << endl;
+            }
+        }
+
+        if (numAdds[ps->task] > 0){
+            for (int i = 0; i < numAdds[ps->task]; i++) {
+                newS[addLists[ps->task][i]] = true;
+            }
+        }
+        // check whether it's the last task in task network
+        if (ps->numSuccessors == 0){
+            bool solv = true;
+            for (int i = 0; i < gSize; i++) {
+                if (newS[gList[i]] != 1) {
+                    solv = false;
+                }
+            }
+            return solv;
+        } else {
+            nextPS = ps->successorList[0];
+            return recursivePrune(n, nextPS, newS);
+            // bool success;
+            //success = recursivePrune(n, nextPS, newS);
+            //if (success)
+             //   return true;
+        }
+
+    // current task is abstract
+    } else {
+
+        for (int m = 0; m < numMethodsForTask[ps->task]; m++) {
+            vector<bool> newS(s);
+            int cm = taskToMethods[ps->task][m];
+            bool mApplicable = true;
+
+            // test whether method cm is applicable
+            if (!prec_m[cm].empty()) {
+                for (int i = 0; i < prec_m[cm].size(); i++) {
+                    if (s[prec_m[cm][i]] != 1) {
+                        mApplicable = false;
+                        break;
+                    }
+                }
+            }
+
+            if (mApplicable) {
+                // add all possible positives
+                if (!poss_pos_m[cm].empty()){
+                    for (int i = 0; i < poss_pos_m[cm].size(); i++) {
+                        newS[poss_pos_m[cm][i]] = true;
+                    }
+                }
+                // delete all guaranteed negative
+                if (!eff_neg_m[cm].empty()){
+                    for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                        newS[eff_neg_m[cm][i]] = false;
+                    }
+                }
+                // check whether it's the last task in task network
+                if (ps->numSuccessors == 0){
+                    bool solv = true;
+                    for (int i = 0; i < gSize; i++) {
+                        if (newS[gList[i]] != 1) {
+                            solv = false;
+                        }
+                    }
+                    if (solv)
+                        return solv;
+                } else {
+                    nextPS = ps->successorList[0];
+                    bool success;
+                    success = recursivePrune(n, nextPS, newS);
+                    if (success)
+                        return true;
+                }
+            }
+
+
+        }
+        return false;
+
+    }
+
+}
+
+int Model::pruneWithMethods(searchNode *n) {
+    vector<bool> currentS = n->state;
+    planStep *currentPS;
+
+    if (n->numAbstract > 0) {
+        currentPS = n->unconstraintAbstract[0];
+    } else {
+        currentPS = n->unconstraintPrimitive[0];
+    }
+    //cout << "erster task im Suchknoten: " << currentPS->task << " " << taskNames[currentPS->task] << endl;
+
+    int onlyOne = 0;
+
+    while (true) {
+
+        //cout << "neuer task betrachtet: " << currentPS->task << " " << taskNames[currentPS->task] << endl;
+        if ( !isPrimitive[currentPS->task]) {
+
+            bool oneMeth = false;
+            int numApplM = 0;
+            bool firstMeth = true;
+            vector<int> possDels;
+            vector<int> dummyDels;
+
+            for (int m = 0; m < numMethodsForTask[currentPS->task]; m++) {
+                int cm = taskToMethods[currentPS->task][m];
+                bool cmB = true;
+
+                if (!prec_m[cm].empty()) {
+                    for (int i = 0; i < prec_m[cm].size(); i++) {
+                        if (currentS[prec_m[cm][i]] != 1) {
+                            cmB=false;
+                            break;
+                        }
+
+                    }
+                    if (cmB){
+                        oneMeth = true;
+                        numApplM++;
+                    }
+
+
+                    if (cmB && !poss_pos_m[cm].empty()){
+                        for (int i = 0; i < poss_pos_m[cm].size(); i++) {
+                            currentS[poss_pos_m[cm][i]] = true;
+                        }
+                    }
+
+                    if (cmB && eff_neg_m[cm].empty())
+                        firstMeth = false;
+
+                    if (cmB && !eff_neg_m[cm].empty()){
+
+                        if (firstMeth) {
+                            for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                                possDels.push_back(eff_neg_m[cm][i]);
+                            }
+                            firstMeth = false;
+                        } else {
+                            dummyDels.clear();
+                            dummyDels=possDels;
+                            possDels.clear();
+
+                            for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                                if (std::find(dummyDels.begin(), dummyDels.end(), eff_neg_m[cm][i]) !=dummyDels.end())
+                                    possDels.push_back(eff_neg_m[cm][i]);
+                            }
+                        }
+
+
+                    }
+
+
+                } else {
+                    oneMeth = true;
+                    numApplM++;
+                    if (!poss_pos_m[cm].empty()){
+                        for (int i = 0; i < poss_pos_m[cm].size(); i++) {
+                            currentS[poss_pos_m[cm][i]] = true;
+                        }
+                    }
+
+                    if (eff_neg_m[cm].empty())
+                        firstMeth = false;
+
+                    if (!eff_neg_m[cm].empty()){
+
+                        if (firstMeth) {
+                            for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                                possDels.push_back(eff_neg_m[cm][i]);
+                            }
+                            firstMeth = false;
+                        } else {
+                            dummyDels.clear();
+                            dummyDels=possDels;
+                            possDels.clear();
+
+                            for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                                if (std::find(dummyDels.begin(), dummyDels.end(), eff_neg_m[cm][i]) !=dummyDels.end())
+                                    possDels.push_back(eff_neg_m[cm][i]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!oneMeth) {
+                // cout << "Pruned because of " << taskNames[currentPS->task] << " " << currentPS->task << endl;
+                return -1;
+            }
+
+
+            if (numApplM == 1 && numMethodsForTask[currentPS->task] > 1) {
+                onlyOne++;
+                // cout << "task id " << currentPS->id << taskNames[currentPS->task] << " ";
+            }
+
+
+            std::vector<int>::const_iterator it;
+            for(it=possDels.begin(); it!=possDels.end(); ++it){
+                currentS[*it] = false;
+                // cout << "neg effect " << *it << "processed for task " << taskNames[currentPS->task] << endl;
+            }
+
+
+        } else {
+            if (numPrecs[currentPS->task] > 0){
+                for (int i = 0; i < numPrecs[currentPS->task]; i++) {
+                    if (currentS[precLists[currentPS->task][i]] != 1) {
+                        //cout << "Pruned because of " << taskNames[currentPS->task] << " " << currentPS->task << " and prec " << factStrs[precLists[currentPS->task][i]] << endl;
+                        return -1;
+                    }
+
+                }
+            }
+
+            if (numDels[currentPS->task] > 0){
+                for (int i = 0; i < numDels[currentPS->task]; i++) {
+                    currentS[delLists[currentPS->task][i]] = false;
+                    // cout << "Primitive: neg effect " << delLists[currentPS->task][i] << " deleted." << endl;
+                }
+            }
+
+            if (numAdds[currentPS->task] > 0){
+                for (int i = 0; i < numAdds[currentPS->task]; i++) {
+                    currentS[addLists[currentPS->task][i]] = true;
+                }
+            }
+
+        }
+        // cout << "successors: " << currentPS->numSuccessors << endl;
+        if (currentPS->numSuccessors == 0){
+            for (int i = 0; i < gSize; i++) {
+                if (currentS[gList[i]] != 1) {
+                    // cout << "Pruned beacause of goal " << factStrs[gList[i]] << gList[i] << endl;
+                    //cout << n->state[gList[i]] << endl;
+
+                    return -1;
+                }
+
+            }
+            return onlyOne;
+        } else {
+            currentPS = currentPS->successorList[0];
+            // cout << "now looking at " << currentPS->task << endl;
+        }
+    }
+}
+
+vector<int> Model::pruneAndDecompose(searchNode *n) {
+    vector<bool> currentS = n->state;
+    planStep *currentPS;
+    bool firstTask= true;
+    int returnMethod = -2;
+    int numT = 0;
+    vector<int> earlyDec;
+
+    vector<int> nope;
+    nope.push_back(-1);
+
+    if (n->numAbstract > 0) {
+        currentPS = n->unconstraintAbstract[0];
+    } else {
+        currentPS = n->unconstraintPrimitive[0];
+    }
+    //cout << "erster task im Suchknoten: " << currentPS->task << " " << taskNames[currentPS->task] << endl;
+
+    int onlyOne = 0;
+
+    while (true) {
+
+        //cout << "neuer task betrachtet: " << currentPS->task << " " << taskNames[currentPS->task] << endl;
+        if ( !isPrimitive[currentPS->task]) {
+
+            bool oneMeth = false;
+            int numApplM = 0;
+            bool firstMeth = true;
+            int whichMethod = -1;
+            vector<int> possDels;
+            vector<int> dummyDels;
+
+            for (int m = 0; m < numMethodsForTask[currentPS->task]; m++) {
+                int cm = taskToMethods[currentPS->task][m];
+                bool cmB = true;
+
+                if (!prec_m[cm].empty()) {
+                    for (int i = 0; i < prec_m[cm].size(); i++) {
+                        if (currentS[prec_m[cm][i]] != 1) {
+                            cmB = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (cmB) {
+                    oneMeth = true;
+                    numApplM++;
+                    whichMethod = m;
+
+                    if (!poss_pos_m[cm].empty()){
+                        for (int i = 0; i < poss_pos_m[cm].size(); i++) {
+                            currentS[poss_pos_m[cm][i]] = true;
+                        }
+                    }
+
+                    if (eff_neg_m[cm].empty()) {
+                        firstMeth = false;
+			possDels.clear();
+                    }
+
+                    if (!eff_neg_m[cm].empty()) {
+
+                        if (firstMeth) {
+                            for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                                possDels.push_back(eff_neg_m[cm][i]);
+                            }
+                            firstMeth = false;
+                        } else {
+                            dummyDels.clear();
+                            dummyDels = possDels;
+                            possDels.clear();
+
+                            for (int i = 0; i < eff_neg_m[cm].size(); i++) {
+                                if (std::find(dummyDels.begin(), dummyDels.end(), eff_neg_m[cm][i]) != dummyDels.end())
+                                    possDels.push_back(eff_neg_m[cm][i]);
+                            }
+                        }
+                    }
+
+                    /*if(!prec_m[cm].empty()) {
+                        for (int i = 0; i < prec_m[cm].size(); i++) {
+                            int prec = prec_m[cm][i];
+                            int var = varOfStateBit[prec];
+                            for (int j = firstIndex[var]; j <= lastIndex[var]; j++) {
+                                if (j != prec) {
+                                    currentS[j] = false;
+                                }
+                            }
+                        }
+                    }*/
+
+                }
+            }
+
+            if (!oneMeth) {
+                // cout << "Pruned because of " << taskNames[currentPS->task] << " " << currentPS->task << endl;
+                //return -1;
+                return nope;
+            }
+
+
+            if (numApplM == 1) {
+                onlyOne++;
+                // cout << "task id " << currentPS->id << taskNames[currentPS->task] << " ";
+                /*if (firstTask) {
+                    returnMethod = whichMethod;
+                } else {
+                    earlyDec.push_back(currentPS->task);
+                    earlyDec.push_back(taskToMethods[currentPS->task][whichMethod]);
+                    //cout << "early decompose of " << currentPS->task << "->" << taskToMethods[currentPS->task][whichMethod] << endl;
+                    searchNode *n3 = this->decomposeMiddle(n, numT, taskToMethods[currentPS->task][whichMethod]);
+                    //n = n3;
+                    //cout << "there is one that is not first one " << endl;
+                }*/
+                earlyDec.push_back(numT);
+                earlyDec.push_back(taskToMethods[currentPS->task][whichMethod]);
+
+            }
+
+
+            std::vector<int>::const_iterator it;
+            for(it=possDels.begin(); it!=possDels.end(); ++it){
+                currentS[*it] = false;
+                // cout << "neg effect " << *it << "processed for task " << taskNames[currentPS->task] << endl;
+            }
+
+
+        } else {
+            if (numPrecs[currentPS->task] > 0){
+                for (int i = 0; i < numPrecs[currentPS->task]; i++) {
+                    if (currentS[precLists[currentPS->task][i]] != 1) {
+                        //cout << "Pruned because of " << taskNames[currentPS->task] << " " << currentPS->task << " and prec " << factStrs[precLists[currentPS->task][i]] << endl;
+                        //return -1;
+                        return nope;
+                    }
+
+                }
+            }
+
+            if (numDels[currentPS->task] > 0){
+                for (int i = 0; i < numDels[currentPS->task]; i++) {
+                    currentS[delLists[currentPS->task][i]] = false;
+                    // cout << "Primitive: neg effect " << delLists[currentPS->task][i] << " deleted." << endl;
+                }
+            }
+
+            if (numAdds[currentPS->task] > 0){
+                for (int i = 0; i < numAdds[currentPS->task]; i++) {
+                    currentS[addLists[currentPS->task][i]] = true;
+                }
+            }
+
+        }
+        // cout << "successors: " << currentPS->numSuccessors << endl;
+        if (currentPS->numSuccessors == 0){
+            for (int i = 0; i < gSize; i++) {
+                if (currentS[gList[i]] != 1) {
+                    // cout << "Pruned beacause of goal " << factStrs[gList[i]] << gList[i] << endl;
+                    //cout << n->state[gList[i]] << endl;
+
+                    //return -1;
+                    return nope;
+                }
+
+            }
+            // return onlyOne;
+            return earlyDec;
+            //return returnMethod;
+        } else {
+            currentPS = currentPS->successorList[0];
+            firstTask = false;
+            numT++;
+            // cout << "now looking at " << currentPS->task << endl;
+        }
+    }
+}
 
 
 	void Model::methodTopSortDFS(int cur, map<int,unordered_set<int>> & adj, map<int, int> & colour, int & curpos, int* order){
