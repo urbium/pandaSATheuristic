@@ -13,33 +13,44 @@
 #include <stdexcept>
 #include "EvalMaxSAT.h"
 
-class satRC2 : public Heuristic {
-    private:
+class satRC2 : public Heuristic
+{
+private:
     int actionCost;
     int hardClauseCost;
     vector<int> varActionToRealAction;
     vector<int> firstActionOfEachStep;
     vector<vector<int>> precsIntermediate;
-    Model* htn;
+    vector<vector<int>> delsIntermediate;
+    Model *htn;
 
-
-    int exec(const char* cmd) {  //taken from stackoverflow and adapted
+    int exec(const char *cmd)
+    { // taken from stackoverflow and adapted
         std::array<char, 128> buffer;
         long int res = -1;
         std::unique_ptr<FILE, decltype(&pclose)> pipe(popen((std::string(cmd) + " 2>/dev/null").c_str(), "r"), pclose);
-        if (!pipe) {
+        if (!pipe)
+        {
             throw std::runtime_error("popen() failed!");
         }
-        while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-            //cout << buffer.data() << endl;
-            if (buffer[0] == 's') {
-                if (strcmp(buffer.data() + 2, "UNSATISFIABLE\n") == 0) {
+        while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+        {
+            // cout << buffer.data() << endl;
+            if (buffer[0] == 's')
+            {
+                if (strcmp(buffer.data() + 2, "UNSATISFIABLE\n") == 0)
+                {
                     return -1;
                 }
-            } else if (buffer[0] == 'o') {
-                try {
-                    res = round(stol((buffer.data()+2)));
-                } catch (const out_of_range& e){
+            }
+            else if (buffer[0] == 'o')
+            {
+                try
+                {
+                    res = round(stol((buffer.data() + 2)));
+                }
+                catch (const out_of_range &e)
+                {
                     res = numeric_limits<int>::max();
                 }
             }
@@ -47,166 +58,266 @@ class satRC2 : public Heuristic {
         return res;
     }
 
-    void adapt(int numVars, int numClauses, int maxCost, const std::string& filename){
+    void adapt(int numVars, int numClauses, int maxCost, const std::string &filename)
+    {
         std::fstream file(filename, std::ios::in | std::ios::out);
 
         file.seekp(0);
-        file.write(pad_string_to_32_bytes("p wcnf " + to_string(numVars) + " " + to_string(numClauses) + " " + to_string(maxCost) ).c_str(), 32);
+        file.write(pad_string_to_32_bytes("p wcnf " + to_string(numVars) + " " + to_string(numClauses) + " " + to_string(maxCost)).c_str(), 32);
 
         file.close();
     }
 
-    string pad_string_to_32_bytes(const std::string& input)//taken from chatgpt
+    string pad_string_to_32_bytes(const std::string &input) // taken from chatgpt
     {
         std::ostringstream oss;
         oss << input;
         int num_spaces = 32 - input.length() - 1; // Subtract 1 for the newline character
-        for (int i = 0; i < num_spaces; ++i) {
+        for (int i = 0; i < num_spaces; ++i)
+        {
             oss << " ";
         }
         oss << '\n';
         return oss.str();
     }
 
-    void addHardClause(std::ofstream& file, int variable) {
+    void addHardClause(std::ofstream &file, int variable)
+    {
         file << hardClauseCost << " " << variable << " 0" << endl;
     }
 
-    void addHardClauseNeg(std::ofstream& file, int variable) {
+    void addHardClauseNeg(std::ofstream &file, int variable)
+    {
         file << hardClauseCost << " -" << variable << " 0" << endl;
     }
 
-    void addHardClauseFirstNegSecTrue(std::ofstream& file, int negClause, int posClause) {
-        file << hardClauseCost << " -" << negClause << " " << posClause<< " 0" << endl;
+    void addHardClauseFirstNegSecTrue(std::ofstream &file, int negClause, int posClause)
+    {
+        file << hardClauseCost << " -" << negClause << " " << posClause << " 0" << endl;
     }
 
-    void addHardClauseTwoNegOneTrue(std::ofstream& file, int negClause1, int negClause2, int posClause) {
-        file << hardClauseCost << " -" << negClause1 << " -" << negClause2 << " " << posClause<< " 0" << endl;
+    void addHardClauseTwoNegOneTrue(std::ofstream &file, int negClause1, int negClause2, int posClause)
+    {
+        file << hardClauseCost << " -" << negClause1 << " -" << negClause2 << " " << posClause << " 0" << endl;
     }
 
-    void addHardClauseTwoNegTwoTrue(std::ofstream& file, int negClause1, int negClause2, int posClause1, int posClause2) {
-        file << hardClauseCost << " -" << negClause1 << " -" << negClause2 << " " << posClause1<< " "<< posClause2 << " 0" << endl;
+    void addHardClauseTwoNegTwoTrue(std::ofstream &file, int negClause1, int negClause2, int posClause1, int posClause2)
+    {
+        file << hardClauseCost << " -" << negClause1 << " -" << negClause2 << " " << posClause1 << " " << posClause2 << " 0" << endl;
     }
 
-    void addNegatedAction(std::ofstream& file, int action) {
+    void addNegatedAction(std::ofstream &file, int action)
+    {
         file << actionCost << " -" << action << " 0" << endl;
     }
 
-    void addHardClauseFirstNegVectorTrue(std::ofstream& file, int negClause, vector<int> posClauses) {
+    void addHardClauseFirstNegVectorTrue(std::ofstream &file, int negClause, vector<int> posClauses)
+    {
         file << hardClauseCost << " -" << negClause;
-        for (int pC : posClauses){
+        for (int pC : posClauses)
+        {
             file << " " << pC;
         }
         file << " 0" << endl;
     }
-    
-     int getNumActions(searchNode *n) {
-        planStep* temp;
 
-        if(n->numAbstract > 0){
+    int getNumActions(searchNode *n)
+    {
+        int stepsPrint = 0;
+        planStep *temp;
+
+        if (n->numAbstract > 0)
+        {
             temp = n->unconstraintAbstract[0];
-        } else if (n->numPrimitive > 0) {
+        }
+        else if (n->numPrimitive > 0)
+        {
             temp = n->unconstraintPrimitive[0];
-        } else {
+        }
+        else
+        {
             return -1;
         }
 
+        stepsPrint++;
+
         firstActionOfEachStep.push_back(1);
-        int result = 1; //Initial Action
+        int result = 1;                      // Initial Action
         varActionToRealAction.push_back(-1); // added one in addition so that the numbers of the vars actually match
         varActionToRealAction.push_back(-1); // Position 1 is start action
 
-        firstActionOfEachStep.push_back(result+1);
-
-        if (temp->task<htn->numActions){
-            vector<int> helperPrecs;
-            for (int i = 0; i < htn->numPrecs[temp->task]; i++){
-                helperPrecs.push_back(htn->precLists[temp->task][i]);
+        firstActionOfEachStep.push_back(result + 1);
+        vector<int> helperDels;
+        if (temp->task < htn->numActions)
+        {
+            for (int i = 0; i < htn->numDels[temp->task]; i++)
+            {
+                helperDels.push_back(htn->delLists[temp->task][i]);
             }
-        } else {
-            vector<int> helperPrecs;
-            for (int prec : htn->preconditions[temp->task-htn->numActions]){
-                helperPrecs.push_back(prec);
+        }
+        else
+        {
+            for (int del : htn->eff_negative[temp->task - htn->numActions])
+            {
+                helperDels.push_back(del);
             }
         }
 
+        delsIntermediate.push_back(helperDels);
+
         // cout << temp->task - htn->numActions << endl;
 
-        for (int j = 0; j < htn->numReachable[temp->task]; j++) {
-            if (htn->reachable[temp->task][j] < htn->numActions){
+        for (int j = 0; j < htn->numReachable[temp->task]; j++)
+        {
+            if (htn->reachable[temp->task][j] < htn->numActions)
+            {
                 result++;
                 varActionToRealAction.push_back(htn->reachable[temp->task][j]);
             }
         }
-        while (temp->numSuccessors > 0){
+        while (temp->numSuccessors > 0)
+        {
+            stepsPrint++;
             temp = temp->successorList[0];
-            //cout << temp->task - htn->numActions<< endl;
-            firstActionOfEachStep.push_back(result+1);
-            for (int j = 0; j < htn->numReachable[temp->task]; j++) {
-                if (htn->reachable[temp->task][j] < htn->numActions){
-                    result++;
-                    varActionToRealAction.push_back(htn->reachable[temp->task][j]);
-                }
-            }
-            if (temp->task<htn->numActions){
+            // cout << temp->task - htn->numActions<< endl;
+            firstActionOfEachStep.push_back(result + 1);
+            if (temp->task < htn->numActions)
+            {
+                result++;
+                varActionToRealAction.push_back(temp->task);
                 vector<int> helperPrecs;
-                for (int i = 0; i < htn->numPrecs[temp->task]; i++){
+                for (int i = 0; i < htn->numPrecs[temp->task]; i++)
+                {
                     helperPrecs.push_back(htn->precLists[temp->task][i]);
                 }
-                precsIntermediate.push_back(helperPrecs);
-            } else {
-                vector<int> helperPrecs;
-                for (int prec : htn->preconditions[temp->task-htn->numActions]){
-                    helperPrecs.push_back(prec);
+                vector<int> helperDels;
+                for (int i = 0; i < htn->numDels[temp->task]; i++)
+                {
+                    helperDels.push_back(htn->delLists[temp->task][i]);
                 }
+                delsIntermediate.push_back(helperDels);
                 precsIntermediate.push_back(helperPrecs);
             }
+            else
+            {
+                for (int j = 0; j < htn->numReachable[temp->task]; j++)
+                {
+                    if (htn->reachable[temp->task][j] < htn->numActions)
+                    {
+                        result++;
+                        varActionToRealAction.push_back(htn->reachable[temp->task][j]);
+                    }
+                }
+                vector<int> helperPrecs;
+                for (int prec : htn->preconditions[temp->task - htn->numActions])
+                {
+                    helperPrecs.push_back(prec);
+                }
+                vector<int> helperDels;
+                for (int del : htn->eff_negative[temp->task - htn->numActions])
+                {
+                    helperDels.push_back(del);
+                }
+                delsIntermediate.push_back(helperDels);
+                precsIntermediate.push_back(helperPrecs);
+            }
+
+            // for (int j = 0; j < htn->numReachable[temp->task]; j++) {
+            //     if (htn->reachable[temp->task][j] < htn->numActions){
+            //         result++;
+            //         varActionToRealAction.push_back(htn->reachable[temp->task][j]);
+            //     }
+            // }
+            // if (temp->task<htn->numActions){
+            //     vector<int> helperPrecs;
+            //     for (int i = 0; i < htn->numPrecs[temp->task]; i++){
+            //         helperPrecs.push_back(htn->precLists[temp->task][i]);
+            //     }
+            //     precsIntermediate.push_back(helperPrecs);
+            // } else {
+            //     vector<int> helperPrecs;
+            //     for (int prec : htn->preconditions[temp->task-htn->numActions]){
+            //         helperPrecs.push_back(prec);
+            //     }
+            //     precsIntermediate.push_back(helperPrecs);
+            // }
         }
-        varActionToRealAction.push_back(-1); //goal action
+        varActionToRealAction.push_back(-1); // goal action
         result++;
         firstActionOfEachStep.push_back(result);
+
+        delsIntermediate.pop_back();
+
+        cout << "Num Steps: " << stepsPrint << endl;
 
         return result;
     }
 
-    void makeFile(const std::string& filename, searchNode *n) {
+    int addInDelInt(int bPI, int add)
+    {
+        // We are in an action >= firstActionOfEachStep[breakPointIndex]
+        // Return the index of the last intermediate Task delting the add Effect before the given (through bpi)
+        // Returns -1 if add does not get deleted up to that bpi
+        if (bPI == 1)
+        {
+            return -1;
+        }
+        for (int i = bPI - 2; i >= 0; i--)
+        {
+            for (int delIndex = 0; delIndex < delsIntermediate[i].size(); delIndex++)
+            {
+                if (add == delsIntermediate[i][delIndex])
+                {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    void makeFile(const std::string &filename, searchNode *n)
+    {
         int numActions = getNumActions(n);
-                  
-        if (numActions == -1){
+
+        if (numActions == -1)
+        {
             ofstream file(filename);
-            if (!file) {
+            if (!file)
+            {
                 cerr << "Error: Could not open file." << std::endl;
                 return;
             }
             file << "p wcnf 2 1" << endl;
             file << "2 1 2 0" << endl;
-            file.close();  
+            file.close();
             return;
         }
 
         int goalAction = numActions;
         int numSteps = firstActionOfEachStep.size();
-        numActions = numActions + numSteps -3; //intermediate actions between steps without one for the goal and inital action
+        numActions = numActions + numSteps - 3; // intermediate actions between steps without one for the goal and inital action
 
         cout << "Num Actions: " << numActions << endl;
 
         actionCost = 1;
-        hardClauseCost = numActions*actionCost +1;
+        hardClauseCost = numActions * actionCost + 1;
         unsigned long long int numClauses = 0;
-        int **orderingArray = new int*[numActions+1];
+        int **orderingArray = new int *[numActions + 1];
         int orderingCounter = 1;
 
-
-        for (int a1 = 1; a1 <= numActions; a1++){
-            orderingArray[a1] = new int[numActions+1];
-            for (int a2 = 1; a2 <= numActions; a2++){
-                orderingArray[a1][a2] = numActions+orderingCounter;
-                orderingCounter++; 
+        for (int a1 = 1; a1 <= numActions; a1++)
+        {
+            orderingArray[a1] = new int[numActions + 1];
+            for (int a2 = 1; a2 <= numActions; a2++)
+            {
+                orderingArray[a1][a2] = numActions + orderingCounter;
+                orderingCounter++;
             }
         }
-        
+
         ofstream file(filename);
-        if (!file) {
+        if (!file)
+        {
             cerr << "Error: Could not open file." << std::endl;
             return;
         }
@@ -217,7 +328,7 @@ class satRC2 : public Heuristic {
         // Paper (2)
         addHardClause(file, 1);
         addHardClause(file, goalAction);
-        numClauses = numClauses + 2; 
+        numClauses = numClauses + 2;
 
         // //add all intermediate actions as hard-clauses
         // for (int a = goalAction+1; a <= numActions; a++){
@@ -227,10 +338,13 @@ class satRC2 : public Heuristic {
 
         file << "c Paper 1+3" << endl;
         // Paper (1) + (3)
-        for (int a1 = 1; a1 <= numActions; a1++){
-            for (int a2 = 1; a2 <= numActions; a2++){ 
-                if (a2 == a1){
-                    addHardClauseNeg(file, orderingArray[a1][a2]); //Paper (1)
+        for (int a1 = 1; a1 <= numActions; a1++)
+        {
+            for (int a2 = 1; a2 <= numActions; a2++)
+            {
+                if (a2 == a1)
+                {
+                    addHardClauseNeg(file, orderingArray[a1][a2]); // Paper (1)
                     numClauses++;
                     continue;
                 }
@@ -242,8 +356,10 @@ class satRC2 : public Heuristic {
 
         file << "c Paper 4" << endl;
         // Paper (4)
-        for (int a = 2; a <= numActions; a++){
-            if (a == goalAction){
+        for (int a = 2; a <= numActions; a++)
+        {
+            if (a == goalAction)
+            {
                 continue;
             }
             addHardClauseFirstNegSecTrue(file, a, orderingArray[1][a]);
@@ -277,146 +393,214 @@ class satRC2 : public Heuristic {
         //     }
         // }
 
-
-        for (int a1 = 1; a1 <= numActions; a1++){
-            // if (a1 == goalAction){
-            //     continue;
-            // }
-            for (int a2 = 1; a2 <= numActions; a2++){
-                // if (a2 == goalAction){
-                //     continue;
-                // }
-                for (int a3 = 1; a3 <= numActions; a3++){
-                    // if (a3 == goalAction){
-                    //     continue;
-                    // }
-                    addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
-                    numClauses = numClauses+1;
-                }
-            }
-        }
+        // for (int a1 = 1; a1 <= numActions; a1++){
+        //     // if (a1 == goalAction){
+        //     //     continue;
+        //     // }
+        //     for (int a2 = 1; a2 <= numActions; a2++){
+        //         // if (a2 == goalAction){
+        //         //     continue;
+        //         // }
+        //         for (int a3 = 1; a3 <= numActions; a3++){
+        //             // if (a3 == goalAction){
+        //             //     continue;
+        //             // }
+        //             addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+        //             numClauses = numClauses+1;
+        //         }
+        //     }
+        // }
 
         gettimeofday(&tp, NULL);
         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
         getNumTime = getNumTime + currentT - startT;
 
-
-
         file << "c Paper Soft-Clauses" << endl;
         // Paper soft-clauses 1
-        for (int a = 1; a <= numActions; a++){
+        for (int a = 1; a <= numActions; a++)
+        {
             addNegatedAction(file, a);
             numClauses++;
         }
 
         int oldClauses = numClauses;
-        //support array
+        // support array
         int supportCounter = 1;
-        vector<pair<int,int>>*** varToPrecToSupport = new vector<pair<int,int>>**[numActions+1];
-        
-        for (int breakPointIndex = 1; breakPointIndex< numSteps-1; breakPointIndex++){
-            for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex+1]; a++){
+        vector<pair<int, int>> ***varToPrecToSupport = new vector<pair<int, int>> **[numActions + 1];
+
+        for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
+        {
+            for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex + 1]; a++)
+            {
                 int action = varActionToRealAction[a];
-                varToPrecToSupport[a] = new vector<pair<int,int>>*[htn->numPrecs[action]+1];
-                for (int precIndex = 0; precIndex < htn->numPrecs[action]+1; precIndex++) {
-                    varToPrecToSupport[a][precIndex] = new vector<pair<int,int>>();
+                varToPrecToSupport[a] = new vector<pair<int, int>> *[htn->numPrecs[action] + 1];
+                for (int precIndex = 0; precIndex < htn->numPrecs[action] + 1; precIndex++)
+                {
+                    varToPrecToSupport[a][precIndex] = new vector<pair<int, int>>();
                 }
-                if (breakPointIndex==1){
-                    varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(1,supportCounter + numActions + orderingCounter));
-                    supportCounter=supportCounter+1;
-                } else {
-                    varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(goalAction+breakPointIndex-1,supportCounter + numActions + orderingCounter));
-                    supportCounter=supportCounter+1;
+                if (breakPointIndex == 1)
+                {
+                    varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+                    supportCounter = supportCounter + 1;
                 }
-                for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++) {
-                    if (n->state[addEffIndex]){
-                        for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++) {
-                            if (addEffIndex == htn->precLists[action][precIndex]){
-                                varToPrecToSupport[a][precIndex]->push_back(make_pair(1,supportCounter + numActions + orderingCounter));
-                                supportCounter=supportCounter+1;
+                else
+                {
+                    varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(goalAction + breakPointIndex - 1, supportCounter + numActions + orderingCounter));
+                    supportCounter = supportCounter + 1;
+                }
+                for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
+                {
+                    if (n->state[addEffIndex])
+                    {
+                        if (addInDelInt(breakPointIndex, addEffIndex) != -1)
+                        {
+                            continue;
+                        }
+                        for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
+                        {
+                            if (addEffIndex == htn->precLists[action][precIndex])
+                            {
+                                varToPrecToSupport[a][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+                                supportCounter = supportCounter + 1;
                             }
                         }
                     }
                 }
-                for (int suppIndex = 2; suppIndex < firstActionOfEachStep[breakPointIndex+1]; suppIndex++){
-                    // if (suppIndex == a){
-                    //     continue;
-                    // } else {
+                for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
+                {
+                    int prec = htn->precLists[action][precIndex];
+                    int suppIndexStart = 2;
+                    int temp = addInDelInt(breakPointIndex, prec);
+                    if (temp != -1)
+                    {
+                        suppIndexStart = firstActionOfEachStep[2 + temp];
+                    }
+                    for (int suppIndex = suppIndexStart; suppIndex < firstActionOfEachStep[breakPointIndex + 1]; suppIndex++)
+                    {
+                        if (suppIndex == a)
+                        {
+                            continue;
+                        }
                         int support = varActionToRealAction[suppIndex];
-                        for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++) {
-                            for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++) {
-                                if (htn->addLists[support][addEffIndex] == htn->precLists[action][precIndex]){
-                                    varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex,supportCounter + numActions + orderingCounter));
-                                    supportCounter=supportCounter+1;
-                                }
+                        for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
+                        {
+                            if (htn->addLists[support][addEffIndex] == prec)
+                            {
+                                varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
+                                supportCounter = supportCounter + 1;
                             }
-                        //}
-                    }
-                }
-
-            }
-        }
-
-        varToPrecToSupport[goalAction] = new vector<pair<int,int>>*[htn->gSize+1];
-        for (int precIndex = 0; precIndex < htn->gSize+1; precIndex++) {
-            varToPrecToSupport[goalAction][precIndex] = new vector<pair<int,int>>();
-        }
-        if (goalAction<numActions){
-            varToPrecToSupport[goalAction][htn->gSize]->push_back(make_pair(numActions,supportCounter + numActions + orderingCounter));
-        }
-        supportCounter=supportCounter+1;
-        for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++) {
-            if (n->state[addEffIndex]){
-                for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
-                    if (addEffIndex == htn->gList[precIndex]){
-                        varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(1,supportCounter + numActions + orderingCounter));
-                        supportCounter=supportCounter+1;
-                    }
-                }
-            }
-        }
-        for (int suppIndex = 2; suppIndex < goalAction; suppIndex++){
-            int support = varActionToRealAction[suppIndex];
-            for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++) {
-                for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
-                    if (htn->addLists[support][addEffIndex] == htn->gList[precIndex]){
-                        varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(suppIndex,supportCounter + numActions + orderingCounter));
-                        supportCounter=supportCounter+1;
-                        //break;
-                    }
-                }
-            }
-        }
-
-        for (int a = goalAction+1; a <= numActions; a++){
-            varToPrecToSupport[a] = new vector<pair<int,int>>*[precsIntermediate[a-goalAction-1].size()+1];
-            for (int precIndex = 0; precIndex < precsIntermediate[a-goalAction-1].size()+1; precIndex++) {
-                varToPrecToSupport[a][precIndex] = new vector<pair<int,int>>();
-            }
-            if (a==goalAction+1){
-                varToPrecToSupport[a][precsIntermediate[a-goalAction-1].size()]->push_back(make_pair(1,supportCounter + numActions + orderingCounter));
-                supportCounter=supportCounter+1;
-            } else {
-                varToPrecToSupport[a][precsIntermediate[a-goalAction-1].size()]->push_back(make_pair(a-1,supportCounter + numActions + orderingCounter));
-                supportCounter=supportCounter+1;
-            }
-            for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++) {
-                if (n->state[addEffIndex]){
-                    for (int precIndex = 0; precIndex < precsIntermediate[a-goalAction-1].size(); precIndex++) {
-                        if (addEffIndex == precsIntermediate[a-goalAction-1][precIndex]){
-                            varToPrecToSupport[a][precIndex]->push_back(make_pair(1,supportCounter + numActions + orderingCounter));
-                            supportCounter=supportCounter+1;
                         }
                     }
                 }
             }
-            for (int suppIndex = 2; suppIndex < firstActionOfEachStep[a-goalAction+1]; suppIndex++){
+        }
+
+        varToPrecToSupport[goalAction] = new vector<pair<int, int>> *[htn->gSize + 1];
+        for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
+        {
+            varToPrecToSupport[goalAction][precIndex] = new vector<pair<int, int>>();
+        }
+        if (goalAction < numActions)
+        {
+            varToPrecToSupport[goalAction][htn->gSize]->push_back(make_pair(numActions, supportCounter + numActions + orderingCounter));
+        }
+
+        supportCounter = supportCounter + 1;
+        for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
+        {
+            if (n->state[addEffIndex])
+            {
+                if (addInDelInt(numSteps - 1, addEffIndex) != -1)
+                {
+                    continue;
+                }
+                for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+                {
+                    if (addEffIndex == htn->gList[precIndex])
+                    {
+                        varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+                        supportCounter = supportCounter + 1;
+                    }
+                }
+            }
+        }
+
+        for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+        {
+            int prec = htn->gList[precIndex];
+            int suppIndexStart = 2;
+            int temp = addInDelInt(numSteps - 1, prec);
+            if (temp != -1)
+            {
+                suppIndexStart = firstActionOfEachStep[2 + temp];
+            }
+            for (int suppIndex = suppIndexStart; suppIndex < goalAction; suppIndex++)
+            {
                 int support = varActionToRealAction[suppIndex];
-                for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++) {
-                    for (int precIndex = 0; precIndex < precsIntermediate[a-goalAction-1].size(); precIndex++) {
-                        if (htn->addLists[support][addEffIndex] == precsIntermediate[a-goalAction-1][precIndex]){
-                            varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex,supportCounter + numActions + orderingCounter));
-                            supportCounter=supportCounter+1;
+                for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
+                {
+                    if (htn->addLists[support][addEffIndex] == prec)
+                    {
+                        varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
+                        supportCounter = supportCounter + 1;
+                    }
+                }
+            }
+        }
+
+        for (int a = goalAction + 1; a <= numActions; a++)
+        {
+            varToPrecToSupport[a] = new vector<pair<int, int>> *[precsIntermediate[a - goalAction - 1].size() + 1];
+            for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size() + 1; precIndex++)
+            {
+                varToPrecToSupport[a][precIndex] = new vector<pair<int, int>>();
+            }
+            if (a == goalAction + 1)
+            {
+                varToPrecToSupport[a][precsIntermediate[a - goalAction - 1].size()]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+                supportCounter = supportCounter + 1;
+            }
+            else
+            {
+                varToPrecToSupport[a][precsIntermediate[a - goalAction - 1].size()]->push_back(make_pair(a - 1, supportCounter + numActions + orderingCounter));
+                supportCounter = supportCounter + 1;
+            }
+            for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
+            {
+                if (n->state[addEffIndex])
+                {
+                    if (addInDelInt(a - goalAction, addEffIndex) != -1)
+                    {
+                        continue;
+                    }
+                    for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
+                    {
+                        if (addEffIndex == precsIntermediate[a - goalAction - 1][precIndex])
+                        {
+                            varToPrecToSupport[a][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+                            supportCounter = supportCounter + 1;
+                        }
+                    }
+                }
+            }
+            for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
+            {
+                int prec = precsIntermediate[a - goalAction - 1][precIndex];
+                int suppIndexStart = 2;
+                int temp = addInDelInt(a - goalAction, prec);
+                if (temp != -1)
+                {
+                    suppIndexStart = firstActionOfEachStep[2 + temp];
+                }
+                for (int suppIndex = suppIndexStart; suppIndex < firstActionOfEachStep[a - goalAction + 1]; suppIndex++)
+                {
+                    int support = varActionToRealAction[suppIndex];
+                    for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
+                    {
+                        if (htn->addLists[support][addEffIndex] == prec)
+                        {
+                            varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
+                            supportCounter = supportCounter + 1;
                         }
                     }
                 }
@@ -425,7 +609,7 @@ class satRC2 : public Heuristic {
 
         // for (int i = 0; i<varActionToRealAction.size(); i++){
         //     cout << i << ": " << varActionToRealAction[i]<< endl;
-        // }  
+        // }
         // cout <<"-------------------" << endl;
         // for(int a = 2; a<goalAction; a++){
         //     cout << "Process Action " << a <<":"<<endl;
@@ -436,7 +620,7 @@ class satRC2 : public Heuristic {
         //             cout << "("<<varToPrecToSupport[a][precIndex]->at(adderIndex).first << ", " << varToPrecToSupport[a][precIndex]->at(adderIndex).second << "), ";
         //         }
         //         cout << endl;
-        //     } 
+        //     }
         //     cout << "---Precondition Special:"<<endl<<"------";
         //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][htn->numPrecs[action]]->size(); adderIndex++){
         //         cout << varToPrecToSupport[a][htn->numPrecs[action]]->at(adderIndex).first << ", "<< varToPrecToSupport[a][htn->numPrecs[action]]->at(adderIndex).second;
@@ -453,14 +637,13 @@ class satRC2 : public Heuristic {
         //             cout << varToPrecToSupport[a][precIndex]->at(adderIndex).first << ", ";
         //         }
         //         cout << endl;
-        //     } 
+        //     }
         //     cout << "---Precondition Special:"<<endl<<"------";
         //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precsIntermediate[a-1-goalAction].size()]->size(); adderIndex++){
         //         cout << varToPrecToSupport[a][precsIntermediate[a-1-goalAction].size()]->at(adderIndex).first << ", ";
         //     }
         //     cout << endl;
         // }
-
 
         // cout << "Process Goal " << ":"<<endl;
         //     for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
@@ -469,96 +652,103 @@ class satRC2 : public Heuristic {
         //             cout << varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first << ", ";
         //         }
         //         cout << endl;
-        //     } 
+        //     }
         //     cout << "---Precondition Special:"<<endl<<"------";
         //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][htn->gSize]->size(); adderIndex++){
         //         cout << varToPrecToSupport[goalAction][htn->gSize]->at(adderIndex).first << ", ";
         //     }
         //     cout << endl;
 
-
-
-
-
-
-
-
-
-
-        file << "c Paper 6" << endl;
-        // Paper(6)
-        if (numActions > goalAction){ //if we have no steps between init and goal we will have no deleters
-            for (int breakPointIndex = 1; breakPointIndex < numSteps-2; breakPointIndex++){
-                for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex+1]; a++){
-                    int action = varActionToRealAction[a];
-                    int varSuppAction = varToPrecToSupport[a][htn->numPrecs[action]]->back().first;
-                    int varDelAction = goalAction+breakPointIndex;
-                    addHardClauseTwoNegTwoTrue(file, varToPrecToSupport[a][htn->numPrecs[action]]->back().second, varDelAction, orderingArray[varDelAction][varSuppAction],
-                        orderingArray[a][varDelAction]); //Could be handeled differntly because the delete Action needs to be true as well, so we could just
-                        //use the orderings
-                    numClauses = numClauses +1;
-                }
-            }
-        } // For the paper: in 6 xak must be distinct from ai, otherwise this could block itsself
+        // file << "c Paper 6" << endl;
+        // // Paper(6)
+        // if (numActions > goalAction){ //if we have no steps between init and goal we will have no deleters
+        //     for (int breakPointIndex = 1; breakPointIndex < numSteps-2; breakPointIndex++){
+        //         for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex+1]; a++){
+        //             int action = varActionToRealAction[a];
+        //             int varSuppAction = varToPrecToSupport[a][htn->numPrecs[action]]->back().first;
+        //             int varDelAction = goalAction+breakPointIndex;
+        //             addHardClauseTwoNegTwoTrue(file, varToPrecToSupport[a][htn->numPrecs[action]]->back().second, varDelAction, orderingArray[varDelAction][varSuppAction],
+        //                 orderingArray[a][varDelAction]); //Could be handeled differntly because the delete Action needs to be true as well, so we could just
+        //                 //use the orderings
+        //             numClauses = numClauses +1;
+        //         }
+        //     }
+        // } // For the paper: in 6 xak must be distinct from ai, otherwise this could block itsself
 
         file << "c Paper 7" << endl;
-        //Paper (7)
+        // Paper (7)
         vector<int> helperVec;
-        int helperVariableCounter = numActions+orderingCounter + supportCounter +1 ;
-        for (int a = 2; a<=numActions; a++){
+        int helperVariableCounter = numActions + orderingCounter + supportCounter + 1;
+        for (int a = 2; a <= numActions; a++)
+        {
             int tempNumPrecs;
-            if (a<goalAction){
+            if (a < goalAction)
+            {
                 tempNumPrecs = htn->numPrecs[varActionToRealAction[a]];
-            } else if (a==goalAction){
-                continue;
-            } else {
-                tempNumPrecs = precsIntermediate[a-goalAction-1].size();
             }
-            for (int preIndex = 0; preIndex <= tempNumPrecs; preIndex++){
-                if (varToPrecToSupport[a][preIndex] !=nullptr){
-                    if (varToPrecToSupport[a][preIndex]->size() == 0 && preIndex < tempNumPrecs && a < goalAction){
+            else if (a == goalAction)
+            {
+                continue;
+            }
+            else
+            {
+                tempNumPrecs = precsIntermediate[a - goalAction - 1].size();
+            }
+            for (int preIndex = 0; preIndex <= tempNumPrecs; preIndex++)
+            {
+                if (varToPrecToSupport[a][preIndex] != nullptr)
+                {
+                    if (varToPrecToSupport[a][preIndex]->size() == 0 && preIndex < tempNumPrecs && a < goalAction)
+                    {
                         helperVec.clear();
                         // cout << "Does this happen? " << endl;
                         addHardClauseNeg(file, a);
-                        numClauses = numClauses+1;
+                        numClauses = numClauses + 1;
                         continue;
                         // cout << "Size 0: " << a << " " << preIndex<< " " << tempNumPrecs << " " << htn->precLists[varActionToRealAction[a]][preIndex] << endl;
                         // for (int i = 0; i<htn->addToActionSize[htn->precLists[varActionToRealAction[a]][preIndex]];i++){
                         //     cout << "Supp by: " << htn->addToAction[htn->precLists[varActionToRealAction[a]][preIndex]][i] << endl;
                         // }
                     }
-                    for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][preIndex]->size(); adderIndex++){
+                    for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][preIndex]->size(); adderIndex++)
+                    {
                         helperVec.push_back(helperVariableCounter);
                         addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[a][preIndex]->at(adderIndex).first][a]);
                         addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[a][preIndex]->at(adderIndex).second);
-                        numClauses = numClauses +2;
-                        helperVariableCounter=helperVariableCounter+1;
+                        numClauses = numClauses + 2;
+                        helperVariableCounter = helperVariableCounter + 1;
                     }
                     addHardClauseFirstNegVectorTrue(file, a, helperVec);
-                    numClauses = numClauses +1;
+                    numClauses = numClauses + 1;
                     helperVec.clear();
                 }
             }
         }
 
         file << "c Paper 7 Goal Action" << endl;
-        for (int precIndex = 0; precIndex < htn->gSize+1; precIndex++) {
-            if (goalAction==numActions && precIndex == htn->gSize){
+        for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
+        {
+            if (goalAction == numActions && precIndex == htn->gSize)
+            {
                 continue;
             }
-            if (varToPrecToSupport[goalAction][precIndex] !=nullptr){
-                for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++){
+            if (varToPrecToSupport[goalAction][precIndex] != nullptr)
+            {
+                for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++)
+                {
                     helperVec.push_back(helperVariableCounter);
                     addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
                     addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[goalAction][precIndex]->at(adderIndex).second);
-                    numClauses = numClauses +2;
-                    helperVariableCounter=helperVariableCounter+1;
+                    numClauses = numClauses + 2;
+                    helperVariableCounter = helperVariableCounter + 1;
                 }
                 addHardClauseFirstNegVectorTrue(file, goalAction, helperVec);
-                numClauses = numClauses +1;
+                numClauses = numClauses + 1;
                 helperVec.clear();
-            } else {
-                //Unerfüllbar
+            }
+            else
+            {
+                // Unerfüllbar
                 addHardClause(file, 1);
                 addHardClauseNeg(file, 1);
                 return;
@@ -566,8 +756,8 @@ class satRC2 : public Heuristic {
         }
 
         file.close();
-        adapt(helperVariableCounter-1, numClauses, hardClauseCost, filename);
-//        adapt(supportCounter + numActions + orderingCounter, numClauses, hardClauseCost, filename);
+        adapt(helperVariableCounter - 1, numClauses, hardClauseCost, filename);
+        //        adapt(supportCounter + numActions + orderingCounter, numClauses, hardClauseCost, filename);
 
         // cout << "Goal has: "<<endl;
         // for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
@@ -583,7 +773,7 @@ class satRC2 : public Heuristic {
         //     }
         // for (int i = 0; i<varActionToRealAction.size(); i++){
         //     cout << i << ": " << varActionToRealAction[i]<< endl;
-        // }  
+        // }
 
         // cout << "Precs of Intermediate: " << endl;
         // for (int a = goalAction+1; a <= numActions; a++){
@@ -593,125 +783,140 @@ class satRC2 : public Heuristic {
         //     exit(1);
         // }
 
-        for (int breakPointIndex = 1; breakPointIndex< numSteps-1; breakPointIndex++){
-            for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex+1]; a++){
+        for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
+        {
+            for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex + 1]; a++)
+            {
                 int action = varActionToRealAction[a];
-                for (int precIndex = 0; precIndex < htn->numPrecs[action]+1; precIndex++) {
+                for (int precIndex = 0; precIndex < htn->numPrecs[action] + 1; precIndex++)
+                {
                     delete varToPrecToSupport[a][precIndex];
                 }
                 delete[] varToPrecToSupport[a];
             }
         }
 
-        for (int precIndex = 0; precIndex < htn->gSize+1; precIndex++) {
+        for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
+        {
             delete varToPrecToSupport[goalAction][precIndex];
         }
         delete[] varToPrecToSupport[goalAction];
 
-        if (numSteps>2){
-            for (int interAction = 1; interAction < numSteps-2; interAction++) {
-                delete varToPrecToSupport[goalAction+interAction][0];
-                delete[] varToPrecToSupport[goalAction+interAction];
-
+        if (numSteps > 2)
+        {
+            for (int interAction = 1; interAction < numSteps - 2; interAction++)
+            {
+                delete varToPrecToSupport[goalAction + interAction][0];
+                delete[] varToPrecToSupport[goalAction + interAction];
             }
         }
         delete[] varToPrecToSupport;
 
         firstActionOfEachStep.clear();
         varActionToRealAction.clear();
-        for (auto& innerVector : precsIntermediate) {
+        for (auto &innerVector : precsIntermediate)
+        {
             innerVector.clear();
         }
         precsIntermediate.clear();
+        for (auto &innerVector : delsIntermediate)
+        {
+            innerVector.clear();
+        }
+        delsIntermediate.clear();
 
         // cout << "Num Actions: " << numActions << endl;
         // cout << "Num Clauses: " << numClauses << endl;
-        // cout << "Step 6+7 Percent of Clauses: " << fixed << setprecision(4) << 
-        //     1-((oldClauses) / static_cast<double>(numClauses)) << endl; 
-        // cout << "Step 5 Percent of Clauses: " << fixed << setprecision(4) << 
-        //     ((oldClauses- s5Clauses) / static_cast<double>(numClauses)) << endl; 
-        // cout << "Step 1-4 Percent of Clauses: " << fixed << setprecision(4) << 
-        //     ((s5Clauses) / static_cast<double>(numClauses)) << endl;        
+        // cout << "Step 6+7 Percent of Clauses: " << fixed << setprecision(4) <<
+        //     1-((oldClauses) / static_cast<double>(numClauses)) << endl;
+        // cout << "Step 5 Percent of Clauses: " << fixed << setprecision(4) <<
+        //     ((oldClauses- s5Clauses) / static_cast<double>(numClauses)) << endl;
+        // cout << "Step 1-4 Percent of Clauses: " << fixed << setprecision(4) <<
+        //     ((s5Clauses) / static_cast<double>(numClauses)) << endl;
     }
-    
-    public:
 
-        long buildTime = 0;
-        long calcTime = 0;
-        long getNumTime = 0;
-        // Heuristic* heurica;
-        // bool tempCounter = false;
-        
-        satRC2(Model *htnModel, int index) : Heuristic(htnModel, index){
-            htn = htnModel;
-            // heurica = new hhRC2<hsAddFF>(htn, 2, estMIXED, false);
-		    // ((hhRC2<hsAddFF>*)heurica)->sasH->heuristic = sasAdd;
+public:
+    long buildTime = 0;
+    long calcTime = 0;
+    long getNumTime = 0;
+    // Heuristic* heurica;
+    // bool tempCounter = false;
+
+    satRC2(Model *htnModel, int index) : Heuristic(htnModel, index)
+    {
+        htn = htnModel;
+        // heurica = new hhRC2<hsAddFF>(htn, 2, estMIXED, false);
+        // ((hhRC2<hsAddFF>*)heurica)->sasH->heuristic = sasAdd;
+    }
+
+    string getDescription()
+    {
+        return "satRC2";
+    }
+
+    void setHeuristicValue(searchNode *n, searchNode *parent, int action) override
+    {
+        // heurica->setHeuristicValue(n, parent, action);
+        setHeuristicValue(n, parent);
+    }
+
+    void setHeuristicValue(searchNode *n, searchNode *parent, int absTask, int method) override
+    {
+        // heurica->setHeuristicValue(n, parent, absTask, method);
+        setHeuristicValue(n, parent);
+    }
+
+    void setHeuristicValue(searchNode *n, searchNode *parent)
+    {
+        // bool temp = n->goalReachable;
+        // cout << "Old Heurica: " << n->heuristicValue[2]<<endl;
+
+        if (n->numAbstract == 0 && n->numPrimitive == 0)
+        {
+            n->heuristicValue[index] = 0;
+            return;
         }
 
-        string getDescription(){
-    		return "satRC2";
-    	}
+        timeval tp;
+        gettimeofday(&tp, NULL);
+        long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
 
-        void setHeuristicValue(searchNode *n, searchNode *parent, int action) override {
-            //heurica->setHeuristicValue(n, parent, action);
-            setHeuristicValue(n, parent);
+        makeFile("../RamDisk/SatFile.wcnf", n);
+
+        gettimeofday(&tp, NULL);
+        long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+        buildTime = buildTime + currentT - startT;
+
+        n->heuristicValue[index] = exec("../../testLoa/EvalMaxSAT/build/EvalMaxSAT_bin ../RamDisk/SatFile.wcnf");
+
+        gettimeofday(&tp, NULL);
+        long secondT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+        calcTime = calcTime + secondT - currentT;
+
+        cout << "Time Cost for building: " << buildTime << endl;
+        cout << "Time Cost for solving: " << calcTime << endl;
+        cout << "Time Cost for getNum: " << getNumTime << endl;
+        cout << "For Value: " << n->heuristicValue[index] << endl;
+        cout << "----------------" << endl;
+
+        if (n->heuristicValue[index] == -1)
+        {
+            n->goalReachable = false;
+            n->heuristicValue[index] = UNREACHABLE;
         }
 
-        void setHeuristicValue(searchNode *n, searchNode *parent, int absTask, int method) override {
-            //heurica->setHeuristicValue(n, parent, absTask, method);
-            setHeuristicValue(n, parent);
-        }
-
-        void setHeuristicValue(searchNode *n, searchNode *parent) {
-            //bool temp = n->goalReachable;
-            //cout << "Old Heurica: " << n->heuristicValue[2]<<endl;
-
-            if (n->numAbstract == 0 && n->numPrimitive == 0){
-                n->heuristicValue[index] = 0;
-                return;
-            }
-
-            timeval tp;
-            gettimeofday(&tp, NULL);
-            long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-
-            makeFile("../RamDisk/SatFile.wcnf", n); 
-            
-            gettimeofday(&tp, NULL);
-            long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-            buildTime = buildTime + currentT - startT;
-            
-            n->heuristicValue[index] = exec("../../testLoa/EvalMaxSAT/build/EvalMaxSAT_bin ../RamDisk/SatFile.wcnf"); 
-            
-            gettimeofday(&tp, NULL);
-            long secondT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-            calcTime = calcTime + secondT - currentT;
-
-            cout << "Time Cost for building: "<<buildTime  << endl;
-            cout << "Time Cost for solving: "<<calcTime<<endl;
-            cout << "Time Cost for getNum: "<<getNumTime<<endl;
-            cout<< "For Value: " << n->heuristicValue[index] << endl;
-            cout << "----------------" << endl;
-            
-            if (n->heuristicValue[index]==-1){
-                 n->goalReachable=false;
-                 n->heuristicValue[index] = UNREACHABLE;
-            } 
-
-            // if (temp != n->goalReachable && temp){
-            //     if (tempCounter){
-            //         exit(1);
-            //     } else {
-            //         tempCounter = true;
-            //     }
-            // }
-        }
-
-
+        // if (temp != n->goalReachable && temp){
+        //     if (tempCounter){
+        //         exit(1);
+        //     } else {
+        //         tempCounter = true;
+        //     }
+        // }
+    }
 };
 // public:
 // Heuristic* heurica;
-	
+
 //     satRC2(Model *htnModel, int index) : Heuristic(htnModel, index){
 //         htn = htnModel;
 //         heurica = new hhRC2<hsAddFF>(htn, 2, estMIXED, false);
@@ -793,62 +998,25 @@ class satRC2 : public Heuristic {
 //         timeval tp;
 //         gettimeofday(&tp, NULL);
 //         long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-        
+
 //         makeFile("../RamDisk/SatFile.wcnf", n);
-             
-       
+
 //         gettimeofday(&tp, NULL);
 //         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-        
-//         n->heuristicValue[index] = 0 - exec("../loandra/loandra ../RamDisk/SatFile.wcnf"); 
 
-        
+//         n->heuristicValue[index] = 0 - exec("../loandra/loandra ../RamDisk/SatFile.wcnf");
+
 //         cout << "Time Cost: "<<(currentT - startT)  << "; For Value: ";
 
-        
 //         cout << n->heuristicValue[index] << endl;
 //         //exit(1);
-        
+
 //         if (n->heuristicValue[index]==2147483647){
 //              n->goalReachable=false;
-//         } 
+//         }
 //     }
 
-
 // };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // //old try
 // class satRC2 : public Heuristic {
@@ -860,7 +1028,6 @@ class satRC2 : public Heuristic {
 // vector<int>* realActionToVarAction;
 // Model* htn;
 // bool test=false;
-
 
 // int exec(const char* cmd) {  //taken from stackoverflow and adapted
 //     std::array<char, 128> buffer;
@@ -1009,11 +1176,10 @@ class satRC2 : public Heuristic {
 
 // //     // Variable Structure:
 // //     // First initial action then goal action (2)
-// //     // Then all action 
+// //     // Then all action
 // //     // Then for all action follows a block of numAction to represent k(ai,aj)
 // //     // First all j are cycled and then the i is
 
-    
 // //     ofstream file(filename);
 // //     if (!file) {
 // //         cerr << "Error: Could not open file." << std::endl;
@@ -1031,11 +1197,11 @@ class satRC2 : public Heuristic {
 // //     for (int i = 1; i < actionCost; i++){
 // //         addOrdering(file,i+numActions);                                  // added negated ordering constraints as soft clauses
 // //     }
-// //     numClauses = numClauses + actionCost-1; 
+// //     numClauses = numClauses + actionCost-1;
 
 // //     addHardClause(file,1);
 // //     addHardClause(file,2);                                               // paper (2), inital and goal action must exist
-// //     numClauses = numClauses + 2; 
+// //     numClauses = numClauses + 2;
 
 // //     for (int i = 1; i < numActions+1; i++){
 // //         for (int j = 1; j < numActions+1; j++){
@@ -1061,9 +1227,8 @@ class satRC2 : public Heuristic {
 // //     numClauses = numClauses + (numActions * numActions * numActions);
 
 // //     file << "c Start Last part"<<endl;
-       
-       
-// //     //delete relaxiert -> Kein Thread möglich. 
+
+// //     //delete relaxiert -> Kein Thread möglich.
 // //     // causal link can only exist if the first action is part of this planning step or of one before this one
 // //     int lastBreakPoint = 3;
 // //     for (int i = 1; i < varStepBreakPoints.size(); i++){
@@ -1084,7 +1249,7 @@ class satRC2 : public Heuristic {
 // //                 if (n->state[prec]) {
 // //                     clause = clause + " " + to_string(numActions+j);
 // //                 }
-    
+
 // //                 addHardClause(file,clause);
 // //                 numClauses++;
 // //             }
@@ -1127,12 +1292,11 @@ class satRC2 : public Heuristic {
 
 //     // Variable Structure:
 //     // First initial action then
-//     // Then all action 
+//     // Then all action
 //     // goal action
 //     // Then for all action follows a block of numAction to represent  the ordering constraint going towards them k(aj,ai)
 //     // First all j are cycled and then the i is
 
-    
 //     ofstream file(filename);
 //     if (!file) {
 //         cerr << "Error: Could not open file." << std::endl;
@@ -1145,7 +1309,7 @@ class satRC2 : public Heuristic {
 //         addAction(file,i);                                               // added negated actions as soft clauses
 //     }
 //     numClauses = numClauses + numActions - 2;
-     
+
 //     int counter = numActions;
 //     int lastBreakpoint = 1;
 //     for (int breakPointIndex = 0; breakPointIndex < varStepBreakPoints.size(); breakPointIndex++){
@@ -1164,11 +1328,11 @@ class satRC2 : public Heuristic {
 //     varToOrderingBegin.push_back(counter+1);
 //     numClauses = numClauses + numActions - 1;
 //     numOrderings = counter - numActions;
-//     numClauses = numClauses + numOrderings; 
+//     numClauses = numClauses + numOrderings;
 
 //     addHardClause(file, 1);
 //     addHardClause(file, numActions);                                               // paper (2), inital and goal action must exist
-//     numClauses = numClauses + 2; 
+//     numClauses = numClauses + 2;
 
 //     for (int i = 1; i < numActions; i++){
 //         int temp = numActions + varToOrderingBegin[i-1];
@@ -1183,13 +1347,13 @@ class satRC2 : public Heuristic {
 //         addHardClause(file,"-" + to_string(i) + " " + to_string(numActions+i));                // paper 4
 //         addHardClause(file,"-" + to_string(i) + " " + to_string(varToOrderingBegin[i]-1));        // paper 4
 //     }
-//     numClauses = numClauses + 2*(numActions - 2);  
+//     numClauses = numClauses + 2*(numActions - 2);
 
 //     int test = numClauses;
 //         timeval tp;
 //         gettimeofday(&tp, NULL);
 //         long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-        
+
 //     for (int i = 1; i < numActions+1; i++){
 //         int numJ = (varToOrderingBegin[i] - varToOrderingBegin[i-1]);
 //         int firstJ = numActions - (numJ -1);
@@ -1208,7 +1372,7 @@ class satRC2 : public Heuristic {
 
 //      gettimeofday(&tp, NULL);
 //         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-       
+
 //         cout << "Time Cost: "<<(currentT - startT)  << endl;
 
 //     cout<< numClauses -test << endl;
@@ -1218,13 +1382,11 @@ class satRC2 : public Heuristic {
 
 //     cout << result << endl;
 //     cout << numClauses << endl;
-//     cout << "end"; 
+//     cout << "end";
 
 //     file << "c Start Last part"<<endl;
 
-
-       
-//     //delete relaxiert -> Kein Thread möglich. 
+//     //delete relaxiert -> Kein Thread möglich.
 //     // causal link can only exist if the first action is part of this planning step or of one before this one
 //     int lastBreakPoint = 3;
 //     for (int i = 1; i < varStepBreakPoints.size(); i++){
@@ -1245,7 +1407,7 @@ class satRC2 : public Heuristic {
 //                 if (n->state[prec]) {
 //                     clause = clause + " " + to_string(numActions+j);
 //                 }
-    
+
 //                 addHardClause(file,clause);
 //                 numClauses++;
 //             }
@@ -1275,13 +1437,9 @@ class satRC2 : public Heuristic {
 //     varStepBreakPoints.clear();
 // }
 
-
-
-
-
 // public:
 // Heuristic* heurica;
-	
+
 //     satRC2(Model *htnModel, int index) : Heuristic(htnModel, index){
 //         htn = htnModel;
 //         heurica = new hhRC2<hsAddFF>(htn, 2, estMIXED, false);
@@ -1363,26 +1521,22 @@ class satRC2 : public Heuristic {
 //         timeval tp;
 //         gettimeofday(&tp, NULL);
 //         long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-        
+
 //         makeFile("../RamDisk/SatFile.wcnf", n);
-             
-       
+
 //         gettimeofday(&tp, NULL);
 //         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
-        
-//         n->heuristicValue[index] = 0 - exec("../loandra/loandra ../RamDisk/SatFile.wcnf"); 
 
-        
+//         n->heuristicValue[index] = 0 - exec("../loandra/loandra ../RamDisk/SatFile.wcnf");
+
 //         cout << "Time Cost: "<<(currentT - startT)  << "; For Value: ";
 
-        
 //         cout << n->heuristicValue[index] << endl;
 //         //exit(1);
-        
+
 //         if (n->heuristicValue[index]==2147483647){
 //              n->goalReachable=false;
-//         } 
+//         }
 //     }
-
 
 // };
