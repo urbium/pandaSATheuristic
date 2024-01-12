@@ -111,6 +111,11 @@ private:
         file << actionCost << " -" << action << " 0" << endl;
     }
 
+     void addNegatedOrdering(std::ofstream &file, int oC)
+    {
+        file << "1 -" << oC << " 0" << endl;
+    }
+
     void addHardClauseFirstNegVectorTrue(std::ofstream &file, int negClause, vector<int> posClauses)
     {
         file << hardClauseCost << " -" << negClause;
@@ -299,8 +304,8 @@ private:
 
         cout << "Num Actions: " << numActions << endl;
 
-        actionCost = 1;
-        hardClauseCost = numActions * actionCost + 1;
+        actionCost = numActions*numActions+1;
+        hardClauseCost = (numActions+1) * actionCost + 1;
         unsigned long long int numClauses = 0;
         int **orderingArray = new int *[numActions + 1];
         int orderingCounter = 1;
@@ -350,7 +355,9 @@ private:
                 }
                 addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a1); // Paper (3)
                 addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a2); // Paper (3)
-                numClauses = numClauses + 2;
+                addNegatedOrdering(file, orderingArray[a1][a2]);
+                addNegatedOrdering(file, orderingArray[a2][a1]);
+                numClauses = numClauses + 4;
             }
         }
 
@@ -374,42 +381,42 @@ private:
         int s5Clauses = numClauses;
         file << "c Paper 5" << endl;
         // Paper (5)
-        // for (int bpi1 = 1; bpi1< numSteps-1; bpi1++){
-        //     for (int a1 = firstActionOfEachStep[bpi1]; a1 < firstActionOfEachStep[bpi1+1]; a1++){
-        //         for (int bpi2 = bpi1; bpi2< numSteps-1; bpi2++){
-        //             for (int a2 = firstActionOfEachStep[bpi2]; a2 < firstActionOfEachStep[bpi2+1]; a2++){
-        //                 if (a2 == a1){
-        //                     continue;
-        //                 }
-        //                 for (int a3 = firstActionOfEachStep[bpi2]; a3 < goalAction; a3++){
-        //                     if (a2 == a3 || a1 == a3){
-        //                         continue;
-        //                     }
-        //                     addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
-        //                     numClauses = numClauses+1;
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
-        for (int a1 = 1; a1 <= numActions; a1++){
-            // if (a1 == goalAction){
-            //     continue;
-            // }
-            for (int a2 = 1; a2 <= numActions; a2++){
-                // if (a2 == goalAction){
-                //     continue;
-                // }
-                for (int a3 = 1; a3 <= numActions; a3++){
-                    // if (a3 == goalAction){
-                    //     continue;
-                    // }
-                    addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
-                    numClauses = numClauses+1;
+        for (int bpi1 = 2; bpi1< numSteps-1; bpi1++){
+            for (int a1 = firstActionOfEachStep[bpi1]; a1 < firstActionOfEachStep[bpi1+1]; a1++){
+                for (int bpi2 = bpi1; bpi2< numSteps-1; bpi2++){
+                    for (int a2 = firstActionOfEachStep[bpi2]; a2 < firstActionOfEachStep[bpi2+1]; a2++){
+                        if (a2 == a1){
+                            continue;
+                        }
+                        for (int a3 = firstActionOfEachStep[bpi2]; a3 < goalAction; a3++){
+                            if (a2 == a3){
+                                continue;
+                            }
+                            addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+                            numClauses = numClauses+1;
+                        }
+                    }
                 }
             }
         }
+
+        // for (int a1 = 1; a1 <= numActions; a1++){
+        //     // if (a1 == goalAction){
+        //     //     continue;
+        //     // }
+        //     for (int a2 = 1; a2 <= numActions; a2++){
+        //         // if (a2 == goalAction){
+        //         //     continue;
+        //         // }
+        //         for (int a3 = 1; a3 <= numActions; a3++){
+        //             // if (a3 == goalAction){
+        //             //     continue;
+        //             // }
+        //             addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+        //             numClauses = numClauses+1;
+        //         }
+        //     }
+        // }
 
         gettimeofday(&tp, NULL);
         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
@@ -417,7 +424,7 @@ private:
 
         file << "c Paper Soft-Clauses" << endl;
         // Paper soft-clauses 1
-        for (int a = 1; a <= numActions; a++)
+        for (int a = 2; a < goalAction; a++)
         {
             addNegatedAction(file, a);
             numClauses++;
@@ -714,7 +721,7 @@ private:
                     {
                         helperVec.push_back(helperVariableCounter);
                         addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[a][preIndex]->at(adderIndex).first][a]);
-                        addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[a][preIndex]->at(adderIndex).second);
+                        //addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[a][preIndex]->at(adderIndex).second);
                         numClauses = numClauses + 2;
                         helperVariableCounter = helperVariableCounter + 1;
                     }
@@ -736,11 +743,12 @@ private:
             {
                 for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++)
                 {
-                    helperVec.push_back(helperVariableCounter);
-                    addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
-                    addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[goalAction][precIndex]->at(adderIndex).second);
-                    numClauses = numClauses + 2;
-                    helperVariableCounter = helperVariableCounter + 1;
+                    helperVec.push_back(orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
+                    //helperVec.push_back(helperVariableCounter);
+                    //addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
+                    //addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[goalAction][precIndex]->at(adderIndex).second);
+                    //numClauses = numClauses + 2;
+                    //helperVariableCounter = helperVariableCounter + 1;
                 }
                 addHardClauseFirstNegVectorTrue(file, goalAction, helperVec);
                 numClauses = numClauses + 1;
@@ -782,6 +790,8 @@ private:
         // if (n->numAbstract > 0 && n->unconstraintAbstract[0]->task != numActions){
         //     exit(1);
         // }
+
+        cout << "Num Clauses: " << numClauses << endl;
 
         for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
         {
@@ -895,7 +905,7 @@ public:
 
         cout << "Time Cost for building: " << buildTime << endl;
         cout << "Time Cost for solving: " << calcTime << endl;
-        cout << "Time Cost for getNum: " << getNumTime << endl;
+        cout << "Time Cost for Step 5: " << getNumTime << endl;
         cout << "For Value: " << n->heuristicValue[index] << endl;
         cout << "----------------" << endl;
 
