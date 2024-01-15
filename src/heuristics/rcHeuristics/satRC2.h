@@ -11,7 +11,6 @@
 #include <cmath>
 #include "../ProgressionNetwork.h"
 #include <stdexcept>
-#include "EvalMaxSAT.h"
 
 class satRC2 : public Heuristic
 {
@@ -111,7 +110,7 @@ private:
         file << actionCost << " -" << action << " 0" << endl;
     }
 
-     void addNegatedOrdering(std::ofstream &file, int oC)
+    void addNegatedOrdering(std::ofstream &file, int oC)
     {
         file << "1 -" << oC << " 0" << endl;
     }
@@ -125,6 +124,8 @@ private:
         }
         file << " 0" << endl;
     }
+
+    
 
     int getNumActions(searchNode *n)
     {
@@ -170,7 +171,7 @@ private:
 
         delsIntermediate.push_back(helperDels);
 
-        // cout << temp->task - htn->numActions << endl;
+        // cout << temp->task << endl;
 
         for (int j = 0; j < htn->numReachable[temp->task]; j++)
         {
@@ -897,7 +898,7 @@ public:
         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
         buildTime = buildTime + currentT - startT;
 
-        n->heuristicValue[index] = exec("../../testLoa/EvalMaxSAT/build/EvalMaxSAT_bin ../RamDisk/SatFile.wcnf");
+        n->heuristicValue[index] = exec("../EvalMaxSAT/build/EvalMaxSAT_bin ../RamDisk/SatFile.wcnf");
 
         gettimeofday(&tp, NULL);
         long secondT = tp.tv_sec * 1000 + tp.tv_usec / 1000;

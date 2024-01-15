@@ -60,7 +60,6 @@ include_directories(/home/alexander/NewpOrjekt/testLoa/EvalMaxSAT/lib/MaLib/src)
 include_directories(/home/alexander/NewpOrjekt/testLoa/EvalMaxSAT/lib/EvalMaxSAT/src)
 
 # include_directories("MaLib")
-add_subdirectory(/home/alexander/NewpOrjekt/testLoa/EvalMaxSAT ${CMAKE_BINARY_DIR}/EvalMaxSAT)# add_subdirectory(MaLib)
 add_subdirectory(search)
 add_subdirectory(symbolic_search)
 add_subdirectory(heuristics)
