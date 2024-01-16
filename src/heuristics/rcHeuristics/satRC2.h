@@ -17,10 +17,22 @@ class satRC2 : public Heuristic
 private:
     int actionCost;
     int hardClauseCost;
-    vector<int> varActionToRealAction;
-    vector<int> firstActionOfEachStep;
-    vector<vector<int>> precsIntermediate;
-    vector<vector<int>> delsIntermediate;
+    //[step][number of reachable actions]first(SAT var)second(HTN action)
+    vector<vector<pair<int, int>>> stepToActionsVarReal;
+    //Actions before step (Therefore step+1 entrys, because after the last step there are still action)
+    //[step]first(SAT var effect Action)second(SAT var precondition Action)
+    vector<pair<int,int>> artificiallyActionsBeforeStep;
+    int numSteps;
+    int numActions;
+    int numOrderingAndActionVars;
+    //[firstSATVar][secondSATVar]SATVar of ordering or -1 if it can not exist. First ordered before second.
+    int **orderingArray;
+
+    //vector<int> varActionToRealAction;
+    //vector<int> firstActionOfEachStep;
+    vector<vector<int>> precsArtificial;
+    vector<vector<int>> delsArtificial;
+    vector<int> initalActionAdds;
     Model *htn;
 
     int exec(const char *cmd)
@@ -125,13 +137,58 @@ private:
         file << " 0" << endl;
     }
 
-    
+    vector<int> getPreconditions(int task){
+        vector<int> preconditions;
+        if (task < htn->numActions)
+        {
+            for (int i = 0; i < htn->numPrecs[task]; i++)
+            {
+                preconditions.push_back(htn->precLists[task][i]);
+            }
+        }
+        else
+        {
+            for (int prec : htn->preconditions[task - htn->numActions])
+            {
+                preconditions.push_back(prec);
+            }
+        }
+        return preconditions;
+    }
 
-    int getNumActions(searchNode *n)
-    {
-        int stepsPrint = 0;
+    vector<int> getDeletes(int task){
+        vector<int> deletes;
+        if (task < htn->numActions)
+        {
+            for (int i = 0; i < htn->numDels[task]; i++)
+            {
+                deletes.push_back(htn->delLists[task][i]);
+            }
+        }
+        else
+        {
+            for (int del : htn->eff_negative[task - htn->numActions])
+            {
+                deletes.push_back(del);
+            }
+        }
+        return deletes;
+    }
+
+    vector<pair<int,int>> getReach(int task){
+        vector<pair<int,int>> reach;
+        for (int j = 0; j < htn->numReachable[task]; j++)
+        {
+            reach.push_back(make_pair(numActions, htn->reachable[task][j]));
+            numActions++;
+        }
+        return reach;
+    }
+
+    void populateDataStructures(searchNode *n){
         planStep *temp;
-
+        numSteps = 0;
+        numActions=1;
         if (n->numAbstract > 0)
         {
             temp = n->unconstraintAbstract[0];
@@ -140,186 +197,283 @@ private:
         {
             temp = n->unconstraintPrimitive[0];
         }
-        else
+        numSteps++;
+
+        artificiallyActionsBeforeStep.push_back(make_pair(numActions, numActions+1));
+        numActions+=2;
+
+        for (int addIndex = 0; addIndex < htn->numVars; addIndex++)
         {
-            return -1;
-        }
-
-        stepsPrint++;
-
-        firstActionOfEachStep.push_back(1);
-        int result = 1;                      // Initial Action
-        varActionToRealAction.push_back(-1); // added one in addition so that the numbers of the vars actually match
-        varActionToRealAction.push_back(-1); // Position 1 is start action
-
-        firstActionOfEachStep.push_back(result + 1);
-        vector<int> helperDels;
-        if (temp->task < htn->numActions)
-        {
-            for (int i = 0; i < htn->numDels[temp->task]; i++)
+            if (n->state[addIndex])
             {
-                helperDels.push_back(htn->delLists[temp->task][i]);
-            }
-        }
-        else
-        {
-            for (int del : htn->eff_negative[temp->task - htn->numActions])
-            {
-                helperDels.push_back(del);
+                initalActionAdds.push_back(addIndex);
             }
         }
 
-        delsIntermediate.push_back(helperDels);
+        //inital Action does not delete anything
+        delsArtificial.push_back(vector<int>());
+        
+        precsArtificial.push_back(getPreconditions(temp->task));
+        stepToActionsVarReal.push_back(getReach(temp->task));
+        delsArtificial.push_back(getDeletes(temp->task));
 
-        // cout << temp->task << endl;
-
-        for (int j = 0; j < htn->numReachable[temp->task]; j++)
-        {
-            if (htn->reachable[temp->task][j] < htn->numActions)
-            {
-                result++;
-                varActionToRealAction.push_back(htn->reachable[temp->task][j]);
-            }
-        }
         while (temp->numSuccessors > 0)
         {
-            stepsPrint++;
+            numSteps++;
             temp = temp->successorList[0];
-            // cout << temp->task - htn->numActions<< endl;
-            firstActionOfEachStep.push_back(result + 1);
-            if (temp->task < htn->numActions)
-            {
-                result++;
-                varActionToRealAction.push_back(temp->task);
-                vector<int> helperPrecs;
-                for (int i = 0; i < htn->numPrecs[temp->task]; i++)
-                {
-                    helperPrecs.push_back(htn->precLists[temp->task][i]);
-                }
-                vector<int> helperDels;
-                for (int i = 0; i < htn->numDels[temp->task]; i++)
-                {
-                    helperDels.push_back(htn->delLists[temp->task][i]);
-                }
-                delsIntermediate.push_back(helperDels);
-                precsIntermediate.push_back(helperPrecs);
-            }
-            else
-            {
-                for (int j = 0; j < htn->numReachable[temp->task]; j++)
-                {
-                    if (htn->reachable[temp->task][j] < htn->numActions)
-                    {
-                        result++;
-                        varActionToRealAction.push_back(htn->reachable[temp->task][j]);
-                    }
-                }
-                vector<int> helperPrecs;
-                for (int prec : htn->preconditions[temp->task - htn->numActions])
-                {
-                    helperPrecs.push_back(prec);
-                }
-                vector<int> helperDels;
-                for (int del : htn->eff_negative[temp->task - htn->numActions])
-                {
-                    helperDels.push_back(del);
-                }
-                delsIntermediate.push_back(helperDels);
-                precsIntermediate.push_back(helperPrecs);
-            }
-
-            // for (int j = 0; j < htn->numReachable[temp->task]; j++) {
-            //     if (htn->reachable[temp->task][j] < htn->numActions){
-            //         result++;
-            //         varActionToRealAction.push_back(htn->reachable[temp->task][j]);
-            //     }
-            // }
-            // if (temp->task<htn->numActions){
-            //     vector<int> helperPrecs;
-            //     for (int i = 0; i < htn->numPrecs[temp->task]; i++){
-            //         helperPrecs.push_back(htn->precLists[temp->task][i]);
-            //     }
-            //     precsIntermediate.push_back(helperPrecs);
-            // } else {
-            //     vector<int> helperPrecs;
-            //     for (int prec : htn->preconditions[temp->task-htn->numActions]){
-            //         helperPrecs.push_back(prec);
-            //     }
-            //     precsIntermediate.push_back(helperPrecs);
-            // }
+            artificiallyActionsBeforeStep.push_back(make_pair(numActions, numActions+1));
+            numActions+=2;
+            precsArtificial.push_back(getPreconditions(temp->task));
+            stepToActionsVarReal.push_back(getReach(temp->task));
+            delsArtificial.push_back(getDeletes(temp->task));           
         }
-        varActionToRealAction.push_back(-1); // goal action
-        result++;
-        firstActionOfEachStep.push_back(result);
+        
+        artificiallyActionsBeforeStep.push_back(make_pair(numActions, numActions+1));
+        numActions+=2;
 
-        delsIntermediate.pop_back();
-
-        cout << "Num Steps: " << stepsPrint << endl;
-
-        return result;
-    }
-
-    int addInDelInt(int bPI, int add)
-    {
-        // We are in an action >= firstActionOfEachStep[breakPointIndex]
-        // Return the index of the last intermediate Task delting the add Effect before the given (through bpi)
-        // Returns -1 if add does not get deleted up to that bpi
-        if (bPI == 1)
+        vector<int> goalAtoms;
+        for (int gIndex = 0; gIndex < htn->gSize; gIndex++)
         {
-            return -1;
+            goalAtoms.push_back(htn->gList[gIndex]);
         }
-        for (int i = bPI - 2; i >= 0; i--)
-        {
-            for (int delIndex = 0; delIndex < delsIntermediate[i].size(); delIndex++)
-            {
-                if (add == delsIntermediate[i][delIndex])
-                {
-                    return i;
-                }
-            }
-        }
-        return -1;
-    }
+        precsArtificial.push_back(goalAtoms);
 
-    void makeFile(const std::string &filename, searchNode *n)
-    {
-        int numActions = getNumActions(n);
+        numActions -= 1;
 
-        if (numActions == -1)
-        {
-            ofstream file(filename);
-            if (!file)
-            {
-                cerr << "Error: Could not open file." << std::endl;
-                return;
-            }
-            file << "p wcnf 2 1" << endl;
-            file << "2 1 2 0" << endl;
-            file.close();
-            return;
-        }
-
-        int goalAction = numActions;
-        int numSteps = firstActionOfEachStep.size();
-        numActions = numActions + numSteps - 3; // intermediate actions between steps without one for the goal and inital action
-
-        cout << "Num Actions: " << numActions << endl;
-
-        actionCost = numActions*numActions+1;
-        hardClauseCost = (numActions+1) * actionCost + 1;
-        unsigned long long int numClauses = 0;
-        int **orderingArray = new int *[numActions + 1];
-        int orderingCounter = 1;
-
+        //ordering Array
+        orderingArray = new int *[numActions + 1];
+        //populate with -1 for all orderings that can not exist.
         for (int a1 = 1; a1 <= numActions; a1++)
         {
             orderingArray[a1] = new int[numActions + 1];
             for (int a2 = 1; a2 <= numActions; a2++)
             {
-                orderingArray[a1][a2] = numActions + orderingCounter;
-                orderingCounter++;
+                orderingArray[a1][a2] = -1;
             }
         }
+        //populate with actual SATVars for Orderings that can exist.
+        numOrderingAndActionVars = numActions+1;
+        for (int outerStep=0; outerStep<numSteps; outerStep++)
+        {
+            //ordering each intermediate effect action before the same intermediate preconditon action
+            orderingArray[artificiallyActionsBeforeStep[outerStep].first][artificiallyActionsBeforeStep[outerStep].second] = numOrderingAndActionVars;
+            numOrderingAndActionVars++;
+
+            for (int innerStep=outerStep; innerStep<numSteps; innerStep++)
+            {
+                for (pair<int,int> rAPairInner : stepToActionsVarReal[innerStep])
+                {
+                    //ordering intermediate Actions of outerStep before reachable Actions of inner Step
+                    orderingArray[artificiallyActionsBeforeStep[outerStep].first][rAPairInner.first]= numOrderingAndActionVars;
+                    numOrderingAndActionVars++;
+                    orderingArray[artificiallyActionsBeforeStep[outerStep].second][rAPairInner.first]= numOrderingAndActionVars;
+                    numOrderingAndActionVars++;
+                    //ordering reachable Actions of outerStep before reachable Actions of innerStep
+                    for (pair<int,int> rAPairOuter : stepToActionsVarReal[outerStep])
+                    {
+                        orderingArray[rAPairOuter.first][rAPairInner.first] = numOrderingAndActionVars;
+                        numOrderingAndActionVars++;
+                    }
+                }
+                //ordering intermediate Actions of outerStep before intermediate Actions of innerStep
+                orderingArray[artificiallyActionsBeforeStep[outerStep].first][artificiallyActionsBeforeStep[innerStep+1].first]= numOrderingAndActionVars;
+                numOrderingAndActionVars++;
+                orderingArray[artificiallyActionsBeforeStep[outerStep].first][artificiallyActionsBeforeStep[innerStep+1].second]= numOrderingAndActionVars;
+                numOrderingAndActionVars++;
+                orderingArray[artificiallyActionsBeforeStep[outerStep].second][artificiallyActionsBeforeStep[innerStep+1].first]= numOrderingAndActionVars;
+                numOrderingAndActionVars++;
+                orderingArray[artificiallyActionsBeforeStep[outerStep].second][artificiallyActionsBeforeStep[innerStep+1].second]= numOrderingAndActionVars;
+                numOrderingAndActionVars++;
+                //ordering reachable Actions of outerStep before intermediate Actions of innerStep
+                for (pair<int,int> rAPairOuter : stepToActionsVarReal[outerStep])
+                {
+                    orderingArray[rAPairOuter.first][artificiallyActionsBeforeStep[innerStep+1].first] = numOrderingAndActionVars;
+                    numOrderingAndActionVars++;
+                    orderingArray[rAPairOuter.first][artificiallyActionsBeforeStep[innerStep+1].second] = numOrderingAndActionVars;
+                    numOrderingAndActionVars++;
+                }
+            }
+        }
+        //ordering last intermediate effect action before the goalAction
+        orderingArray[artificiallyActionsBeforeStep[numSteps].first][artificiallyActionsBeforeStep[numSteps].second] = numOrderingAndActionVars;
+    }
+
+    // int getNumActions(searchNode *n)
+    // {
+    //     int stepsPrint = 0;
+    //     planStep *temp;
+
+    //     if (n->numAbstract > 0)
+    //     {
+    //         temp = n->unconstraintAbstract[0];
+    //     }
+    //     else if (n->numPrimitive > 0)
+    //     {
+    //         temp = n->unconstraintPrimitive[0];
+    //     }
+    //     else
+    //     {
+    //         return -1;
+    //     }
+
+    //     stepsPrint++;
+
+    //     firstActionOfEachStep.push_back(1);
+    //     int result = 1;                      // Initial Action
+    //     varActionToRealAction.push_back(-1); // added one in addition so that the numbers of the vars actually match
+    //     varActionToRealAction.push_back(-1); // Position 1 is start action
+
+    //     firstActionOfEachStep.push_back(result + 1);
+    //     vector<int> helperDels;
+    //     if (temp->task < htn->numActions)
+    //     {
+    //         for (int i = 0; i < htn->numDels[temp->task]; i++)
+    //         {
+    //             helperDels.push_back(htn->delLists[temp->task][i]);
+    //         }
+    //     }
+    //     else
+    //     {
+    //         for (int del : htn->eff_negative[temp->task - htn->numActions])
+    //         {
+    //             helperDels.push_back(del);
+    //         }
+    //     }
+
+    //     delsIntermediate.push_back(helperDels);
+
+    //     // cout << temp->task << endl;
+
+    //     for (int j = 0; j < htn->numReachable[temp->task]; j++)
+    //     {
+    //             result++;
+    //             varActionToRealAction.push_back(htn->reachable[temp->task][j]);
+    //     }
+    //     while (temp->numSuccessors > 0)
+    //     {
+    //         stepsPrint++;
+    //         temp = temp->successorList[0];
+    //         // cout << temp->task - htn->numActions<< endl;
+    //         firstActionOfEachStep.push_back(result + 1);
+    //         if (temp->task < htn->numActions)
+    //         {
+    //             result++;
+    //             varActionToRealAction.push_back(temp->task);
+    //             vector<int> helperPrecs;
+    //             for (int i = 0; i < htn->numPrecs[temp->task]; i++)
+    //             {
+    //                 helperPrecs.push_back(htn->precLists[temp->task][i]);
+    //             }
+    //             vector<int> helperDels;
+    //             for (int i = 0; i < htn->numDels[temp->task]; i++)
+    //             {
+    //                 helperDels.push_back(htn->delLists[temp->task][i]);
+    //             }
+    //             delsIntermediate.push_back(helperDels);
+    //             precsIntermediate.push_back(helperPrecs);
+    //         }
+    //         else
+    //         {
+    //             for (int j = 0; j < htn->numReachable[temp->task]; j++)
+    //             {
+    //                 if (htn->reachable[temp->task][j] < htn->numActions)
+    //                 {
+    //                     result++;
+    //                     varActionToRealAction.push_back(htn->reachable[temp->task][j]);
+    //                 }
+    //             }
+    //             vector<int> helperPrecs;
+    //             for (int prec : htn->preconditions[temp->task - htn->numActions])
+    //             {
+    //                 helperPrecs.push_back(prec);
+    //             }
+    //             vector<int> helperDels;
+    //             for (int del : htn->eff_negative[temp->task - htn->numActions])
+    //             {
+    //                 helperDels.push_back(del);
+    //             }
+    //             delsIntermediate.push_back(helperDels);
+    //             precsIntermediate.push_back(helperPrecs);
+    //         }
+    //     }
+    //     varActionToRealAction.push_back(-1); // goal action
+    //     result++;
+    //     firstActionOfEachStep.push_back(result);
+
+    //     //delsIntermediate.pop_back();
+
+    //     cout << "Num Steps: " << stepsPrint << endl;
+
+    //     return result;
+    // }
+
+    // int addInDelInt(int bPI, int add)
+    // {
+    //     // We are in an action >= firstActionOfEachStep[breakPointIndex]
+    //     // Return the index of the last intermediate Task delting the add Effect before the given (through bpi)
+    //     // Returns -1 if add does not get deleted up to that bpi
+    //     if (bPI == 1)
+    //     {
+    //         return -1;
+    //     }
+    //     for (int i = bPI - 2; i >= 0; i--)
+    //     {
+    //         for (int delIndex = 0; delIndex < delsIntermediate[i].size(); delIndex++)
+    //         {
+    //             if (add == delsIntermediate[i][delIndex])
+    //             {
+    //                 return i;
+    //             }
+    //         }
+    //     }
+    //     return -1;
+    // }
+
+    bool findIntInVector(vector<int> vec, int toFind){
+        if(std::find(vec.begin(), vec.end(), toFind)!=vec.end())
+        {
+          return true;
+        }
+        return false;
+    }
+
+    int getLastDeletionUpToStep(int prec, int upperStep){
+        if (upperStep == 0)
+        {
+            return 0;
+        }
+        for (int currentStep = upperStep; currentStep>0; currentStep--){
+            if (findIntInVector(delsArtificial[currentStep], prec)){
+                return currentStep;
+            }
+        }
+        return 0;
+    }
+
+    bool varInAddOfAction(int var, int action){
+        if (htn->numAdds[action] == 0)
+        {
+            return false;
+        }
+        for (int addsIndex = 0; addsIndex<htn->numAdds[action]; addsIndex++)
+        {
+            if (var == htn->addLists[action][addsIndex])
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void makeSATFile(const std::string &filename, searchNode *n){
+        populateDataStructures(n);
+        cout << "Num Steps: " << numSteps << endl;
+        cout << "Num Actions: " << numActions << endl;
+        cout << "Num Actions+Orderings: " << numOrderingAndActionVars << endl;
+        actionCost = numOrderingAndActionVars-numActions+1;
+        hardClauseCost = (numActions+1) * actionCost + 1;
+
+        unsigned long long int numClauses = 0;
 
         ofstream file(filename);
         if (!file)
@@ -330,521 +484,760 @@ private:
 
         file << pad_string_to_32_bytes("Hello There");
 
-        file << "c Paper 2" << endl;
-        // Paper (2)
-        addHardClause(file, 1);
-        addHardClause(file, goalAction);
-        numClauses = numClauses + 2;
+        file << "c Paper Soft-Clauses Actions (9), and paper (1), and layering" << endl;
+        for (int step=0; step<numSteps; step++)
+        {
+            for (pair<int,int> rAPair : stepToActionsVarReal[step])
+            {
+                // paper (9)
+                addNegatedAction(file,rAPair.first);
+                //paper (1)
+                addHardClauseNeg(file, orderingArray[rAPair.first][rAPair.first]);
+                //layering
+                addHardClauseFirstNegSecTrue(file, rAPair.first, orderingArray[artificiallyActionsBeforeStep[step].second][rAPair.first]);
+                addHardClauseFirstNegSecTrue(file, rAPair.first, orderingArray[rAPair.first][artificiallyActionsBeforeStep[step+1].first]);
+                numClauses+=4;
+            }
+        }
 
-        // //add all intermediate actions as hard-clauses
-        // for (int a = goalAction+1; a <= numActions; a++){
-        //     addHardClause(file, a);
-        //     numClauses++;
-        // }
+        //force intermediate Actions to appear (2)
+        file << "c Paper 2, force intermediate Actions" << endl;
+        for (int step=0; step<numSteps+1; step++)
+        {
+            pair<int,int> rAPair = artificiallyActionsBeforeStep[step];
+            addHardClause(file,rAPair.first);
+            addHardClause(file,rAPair.second);
+            //paper (4) optimized
+            addHardClause(file, orderingArray[rAPair.first][rAPair.second]);
+            numClauses +=3;
+            if (step<numSteps)
+            {
+                addHardClause(file, orderingArray[rAPair.second][artificiallyActionsBeforeStep[step+1].first]);
+                numClauses++;
+            }
+        }
+        
 
-        file << "c Paper 1+3" << endl;
-        // Paper (1) + (3)
+        //paper (3) and minimize orderings (8)
+        file << "c Paper 3, Soft-Clauses Orderings" << endl;
         for (int a1 = 1; a1 <= numActions; a1++)
         {
             for (int a2 = 1; a2 <= numActions; a2++)
             {
-                if (a2 == a1)
+                if (orderingArray[a1][a2] != -1)
                 {
-                    addHardClauseNeg(file, orderingArray[a1][a2]); // Paper (1)
-                    numClauses++;
-                    continue;
+                    addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a1); // Paper (3)
+                    addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a2); // Paper (3)
+                    addNegatedOrdering(file, orderingArray[a1][a2]);
+                    numClauses = numClauses + 3;
                 }
-                addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a1); // Paper (3)
-                addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a2); // Paper (3)
-                addNegatedOrdering(file, orderingArray[a1][a2]);
-                addNegatedOrdering(file, orderingArray[a2][a1]);
-                numClauses = numClauses + 4;
             }
-        }
-
-        file << "c Paper 4" << endl;
-        // Paper (4)
-        for (int a = 2; a <= numActions; a++)
-        {
-            if (a == goalAction)
-            {
-                continue;
-            }
-            addHardClauseFirstNegSecTrue(file, a, orderingArray[1][a]);
-            addHardClauseFirstNegSecTrue(file, a, orderingArray[a][goalAction]);
-            numClauses = numClauses + 2;
         }
 
         timeval tp;
         gettimeofday(&tp, NULL);
         long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
 
-        int s5Clauses = numClauses;
+        //paper (5)
         file << "c Paper 5" << endl;
-        // Paper (5)
-        for (int bpi1 = 2; bpi1< numSteps-1; bpi1++){
-            for (int a1 = firstActionOfEachStep[bpi1]; a1 < firstActionOfEachStep[bpi1+1]; a1++){
-                for (int bpi2 = bpi1; bpi2< numSteps-1; bpi2++){
-                    for (int a2 = firstActionOfEachStep[bpi2]; a2 < firstActionOfEachStep[bpi2+1]; a2++){
-                        if (a2 == a1){
-                            continue;
-                        }
-                        for (int a3 = firstActionOfEachStep[bpi2]; a3 < goalAction; a3++){
-                            if (a2 == a3){
-                                continue;
-                            }
-                            addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
-                            numClauses = numClauses+1;
-                        }
-                    }
+        for (int a1 = 1; a1 <= numActions; a1++)
+        {
+            for (int a2 = 1; a2 <= numActions; a2++)
+            {
+                if ((a1==a2) || (orderingArray[a1][a2] == -1))
+                {
+                    continue;
+                } 
+
+                for (int a3 = 1; a3 <= numActions; a3++)
+                {
+                    if ((a2==a3) || (orderingArray[a2][a3] == -1))
+                    {
+                        continue;
+                    } 
+                    addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+                    numClauses = numClauses+1;
                 }
             }
         }
-
-        // for (int a1 = 1; a1 <= numActions; a1++){
-        //     // if (a1 == goalAction){
-        //     //     continue;
-        //     // }
-        //     for (int a2 = 1; a2 <= numActions; a2++){
-        //         // if (a2 == goalAction){
-        //         //     continue;
-        //         // }
-        //         for (int a3 = 1; a3 <= numActions; a3++){
-        //             // if (a3 == goalAction){
-        //             //     continue;
-        //             // }
-        //             addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
-        //             numClauses = numClauses+1;
-        //         }
-        //     }
-        // }
-
         gettimeofday(&tp, NULL);
         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
         getNumTime = getNumTime + currentT - startT;
 
-        file << "c Paper Soft-Clauses" << endl;
-        // Paper soft-clauses 1
-        for (int a = 2; a < goalAction; a++)
+        //Skip encoding 6, by only considering adders after the last intermediate task deleting prec before action 
+        for (int outerStep=0; outerStep<numSteps+1; outerStep++)
         {
-            addNegatedAction(file, a);
-            numClauses++;
-        }
-
-        int oldClauses = numClauses;
-        // support array
-        int supportCounter = 1;
-        vector<pair<int, int>> ***varToPrecToSupport = new vector<pair<int, int>> **[numActions + 1];
-
-        for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
-        {
-            for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex + 1]; a++)
+            for (int prec : precsArtificial[outerStep])
             {
-                int action = varActionToRealAction[a];
-                varToPrecToSupport[a] = new vector<pair<int, int>> *[htn->numPrecs[action] + 1];
-                for (int precIndex = 0; precIndex < htn->numPrecs[action] + 1; precIndex++)
+                vector<int> possibleAdders;
+                int firstStepAdders = getLastDeletionUpToStep(prec, outerStep);
+                if (firstStepAdders == 0)
                 {
-                    varToPrecToSupport[a][precIndex] = new vector<pair<int, int>>();
-                }
-                if (breakPointIndex == 1)
-                {
-                    varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
-                    supportCounter = supportCounter + 1;
-                }
-                else
-                {
-                    varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(goalAction + breakPointIndex - 1, supportCounter + numActions + orderingCounter));
-                    supportCounter = supportCounter + 1;
-                }
-                for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
-                {
-                    if (n->state[addEffIndex])
+                    if (findIntInVector(initalActionAdds, prec))
                     {
-                        if (addInDelInt(breakPointIndex, addEffIndex) != -1)
+                        possibleAdders.push_back(1);
+                    }
+                } else if (firstStepAdders == outerStep){
+                    addHardClauseNeg(file, artificiallyActionsBeforeStep[outerStep].second);
+                    numClauses++;
+                    return;
+                }
+                for (int innerStep = firstStepAdders; innerStep<outerStep; innerStep++)
+                {
+                    for (pair<int,int> rAPair : stepToActionsVarReal[innerStep])
+                    {
+                        if (varInAddOfAction(prec, rAPair.second))
                         {
-                            continue;
-                        }
-                        for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
-                        {
-                            if (addEffIndex == htn->precLists[action][precIndex])
-                            {
-                                varToPrecToSupport[a][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
-                                supportCounter = supportCounter + 1;
-                            }
+                            possibleAdders.push_back(rAPair.first);
                         }
                     }
                 }
-                for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
-                {
-                    int prec = htn->precLists[action][precIndex];
-                    int suppIndexStart = 2;
-                    int temp = addInDelInt(breakPointIndex, prec);
-                    if (temp != -1)
-                    {
-                        suppIndexStart = firstActionOfEachStep[2 + temp];
-                    }
-                    for (int suppIndex = suppIndexStart; suppIndex < firstActionOfEachStep[breakPointIndex + 1]; suppIndex++)
-                    {
-                        if (suppIndex == a)
-                        {
-                            continue;
-                        }
-                        int support = varActionToRealAction[suppIndex];
-                        for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
-                        {
-                            if (htn->addLists[support][addEffIndex] == prec)
-                            {
-                                varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
-                                supportCounter = supportCounter + 1;
-                            }
-                        }
-                    }
-                }
+                addHardClauseFirstNegVectorTrue(file, artificiallyActionsBeforeStep[outerStep].second, possibleAdders);
+                numClauses++;
+                possibleAdders.clear();
             }
-        }
-
-        varToPrecToSupport[goalAction] = new vector<pair<int, int>> *[htn->gSize + 1];
-        for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
-        {
-            varToPrecToSupport[goalAction][precIndex] = new vector<pair<int, int>>();
-        }
-        if (goalAction < numActions)
-        {
-            varToPrecToSupport[goalAction][htn->gSize]->push_back(make_pair(numActions, supportCounter + numActions + orderingCounter));
-        }
-
-        supportCounter = supportCounter + 1;
-        for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
-        {
-            if (n->state[addEffIndex])
+            if (outerStep == numSteps)
             {
-                if (addInDelInt(numSteps - 1, addEffIndex) != -1)
-                {
+                continue;
+            }
+            for (pair<int,int> rAPair : stepToActionsVarReal[outerStep])
+            {
+                if (htn->numPrecs[rAPair.second] == 0){
                     continue;
                 }
-                for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+                for (int precIndex = 0; precIndex<htn->numPrecs[rAPair.second]; precIndex++)
                 {
-                    if (addEffIndex == htn->gList[precIndex])
+                    int prec = htn->precLists[rAPair.second][precIndex];
+                    vector<int> possibleAdders;
+                    int firstStepAdders = getLastDeletionUpToStep(prec, outerStep);
+                    if (firstStepAdders == 0)
                     {
-                        varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
-                        supportCounter = supportCounter + 1;
-                    }
-                }
-            }
-        }
-
-        for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
-        {
-            int prec = htn->gList[precIndex];
-            int suppIndexStart = 2;
-            int temp = addInDelInt(numSteps - 1, prec);
-            if (temp != -1)
-            {
-                suppIndexStart = firstActionOfEachStep[2 + temp];
-            }
-            for (int suppIndex = suppIndexStart; suppIndex < goalAction; suppIndex++)
-            {
-                int support = varActionToRealAction[suppIndex];
-                for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
-                {
-                    if (htn->addLists[support][addEffIndex] == prec)
-                    {
-                        varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
-                        supportCounter = supportCounter + 1;
-                    }
-                }
-            }
-        }
-
-        for (int a = goalAction + 1; a <= numActions; a++)
-        {
-            varToPrecToSupport[a] = new vector<pair<int, int>> *[precsIntermediate[a - goalAction - 1].size() + 1];
-            for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size() + 1; precIndex++)
-            {
-                varToPrecToSupport[a][precIndex] = new vector<pair<int, int>>();
-            }
-            if (a == goalAction + 1)
-            {
-                varToPrecToSupport[a][precsIntermediate[a - goalAction - 1].size()]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
-                supportCounter = supportCounter + 1;
-            }
-            else
-            {
-                varToPrecToSupport[a][precsIntermediate[a - goalAction - 1].size()]->push_back(make_pair(a - 1, supportCounter + numActions + orderingCounter));
-                supportCounter = supportCounter + 1;
-            }
-            for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
-            {
-                if (n->state[addEffIndex])
-                {
-                    if (addInDelInt(a - goalAction, addEffIndex) != -1)
-                    {
-                        continue;
-                    }
-                    for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
-                    {
-                        if (addEffIndex == precsIntermediate[a - goalAction - 1][precIndex])
+                        if (findIntInVector(initalActionAdds, prec))
                         {
-                            varToPrecToSupport[a][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
-                            supportCounter = supportCounter + 1;
+                            possibleAdders.push_back(1);
+                        }
+                    } 
+                    for (int innerStep = firstStepAdders; innerStep<=outerStep; innerStep++)
+                    {
+                        for (pair<int,int> rAPair2 : stepToActionsVarReal[innerStep])
+                        {
+                            if (varInAddOfAction(prec, rAPair2.second))
+                            {
+                                possibleAdders.push_back(rAPair2.first);
+                            }
                         }
                     }
+                    addHardClauseFirstNegVectorTrue(file, rAPair.first, possibleAdders);
+                    numClauses++;
+                    possibleAdders.clear();
                 }
-            }
-            for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
-            {
-                int prec = precsIntermediate[a - goalAction - 1][precIndex];
-                int suppIndexStart = 2;
-                int temp = addInDelInt(a - goalAction, prec);
-                if (temp != -1)
-                {
-                    suppIndexStart = firstActionOfEachStep[2 + temp];
-                }
-                for (int suppIndex = suppIndexStart; suppIndex < firstActionOfEachStep[a - goalAction + 1]; suppIndex++)
-                {
-                    int support = varActionToRealAction[suppIndex];
-                    for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
-                    {
-                        if (htn->addLists[support][addEffIndex] == prec)
-                        {
-                            varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
-                            supportCounter = supportCounter + 1;
-                        }
-                    }
-                }
-            }
-        }
-
-        // for (int i = 0; i<varActionToRealAction.size(); i++){
-        //     cout << i << ": " << varActionToRealAction[i]<< endl;
-        // }
-        // cout <<"-------------------" << endl;
-        // for(int a = 2; a<goalAction; a++){
-        //     cout << "Process Action " << a <<":"<<endl;
-        //     int action = varActionToRealAction[a];
-        //     for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++) {
-        //         cout << "---Precondition " << htn->precLists[action][precIndex] <<":"<<endl<<"------";
-        //         for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precIndex]->size(); adderIndex++){
-        //             cout << "("<<varToPrecToSupport[a][precIndex]->at(adderIndex).first << ", " << varToPrecToSupport[a][precIndex]->at(adderIndex).second << "), ";
-        //         }
-        //         cout << endl;
-        //     }
-        //     cout << "---Precondition Special:"<<endl<<"------";
-        //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][htn->numPrecs[action]]->size(); adderIndex++){
-        //         cout << varToPrecToSupport[a][htn->numPrecs[action]]->at(adderIndex).first << ", "<< varToPrecToSupport[a][htn->numPrecs[action]]->at(adderIndex).second;
-        //     }
-        //     cout << endl;
-        // }
-
-        // for(int a = goalAction+1; a<=numActions; a++){
-        //     cout << "Process Intermediate Action " << a <<":"<<endl;
-        //     int action = varActionToRealAction[a];
-        //     for (int precIndex = 0; precIndex < precsIntermediate[a-1-goalAction].size(); precIndex++) {
-        //         cout << "---Precondition " << precsIntermediate[a-1-goalAction][precIndex] <<":"<<endl<<"------";
-        //         for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precIndex]->size(); adderIndex++){
-        //             cout << varToPrecToSupport[a][precIndex]->at(adderIndex).first << ", ";
-        //         }
-        //         cout << endl;
-        //     }
-        //     cout << "---Precondition Special:"<<endl<<"------";
-        //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precsIntermediate[a-1-goalAction].size()]->size(); adderIndex++){
-        //         cout << varToPrecToSupport[a][precsIntermediate[a-1-goalAction].size()]->at(adderIndex).first << ", ";
-        //     }
-        //     cout << endl;
-        // }
-
-        // cout << "Process Goal " << ":"<<endl;
-        //     for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
-        //         cout << "---Precondition " << htn->gList[precIndex] <<":"<<endl<<"------";
-        //         for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++){
-        //             cout << varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first << ", ";
-        //         }
-        //         cout << endl;
-        //     }
-        //     cout << "---Precondition Special:"<<endl<<"------";
-        //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][htn->gSize]->size(); adderIndex++){
-        //         cout << varToPrecToSupport[goalAction][htn->gSize]->at(adderIndex).first << ", ";
-        //     }
-        //     cout << endl;
-
-        // file << "c Paper 6" << endl;
-        // // Paper(6)
-        // if (numActions > goalAction){ //if we have no steps between init and goal we will have no deleters
-        //     for (int breakPointIndex = 1; breakPointIndex < numSteps-2; breakPointIndex++){
-        //         for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex+1]; a++){
-        //             int action = varActionToRealAction[a];
-        //             int varSuppAction = varToPrecToSupport[a][htn->numPrecs[action]]->back().first;
-        //             int varDelAction = goalAction+breakPointIndex;
-        //             addHardClauseTwoNegTwoTrue(file, varToPrecToSupport[a][htn->numPrecs[action]]->back().second, varDelAction, orderingArray[varDelAction][varSuppAction],
-        //                 orderingArray[a][varDelAction]); //Could be handeled differntly because the delete Action needs to be true as well, so we could just
-        //                 //use the orderings
-        //             numClauses = numClauses +1;
-        //         }
-        //     }
-        // } // For the paper: in 6 xak must be distinct from ai, otherwise this could block itsself
-
-        file << "c Paper 7" << endl;
-        // Paper (7)
-        vector<int> helperVec;
-        int helperVariableCounter = numActions + orderingCounter + supportCounter + 1;
-        for (int a = 2; a <= numActions; a++)
-        {
-            int tempNumPrecs;
-            if (a < goalAction)
-            {
-                tempNumPrecs = htn->numPrecs[varActionToRealAction[a]];
-            }
-            else if (a == goalAction)
-            {
-                continue;
-            }
-            else
-            {
-                tempNumPrecs = precsIntermediate[a - goalAction - 1].size();
-            }
-            for (int preIndex = 0; preIndex <= tempNumPrecs; preIndex++)
-            {
-                if (varToPrecToSupport[a][preIndex] != nullptr)
-                {
-                    if (varToPrecToSupport[a][preIndex]->size() == 0 && preIndex < tempNumPrecs && a < goalAction)
-                    {
-                        helperVec.clear();
-                        // cout << "Does this happen? " << endl;
-                        addHardClauseNeg(file, a);
-                        numClauses = numClauses + 1;
-                        continue;
-                        // cout << "Size 0: " << a << " " << preIndex<< " " << tempNumPrecs << " " << htn->precLists[varActionToRealAction[a]][preIndex] << endl;
-                        // for (int i = 0; i<htn->addToActionSize[htn->precLists[varActionToRealAction[a]][preIndex]];i++){
-                        //     cout << "Supp by: " << htn->addToAction[htn->precLists[varActionToRealAction[a]][preIndex]][i] << endl;
-                        // }
-                    }
-                    for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][preIndex]->size(); adderIndex++)
-                    {
-                        helperVec.push_back(helperVariableCounter);
-                        addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[a][preIndex]->at(adderIndex).first][a]);
-                        //addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[a][preIndex]->at(adderIndex).second);
-                        numClauses = numClauses + 2;
-                        helperVariableCounter = helperVariableCounter + 1;
-                    }
-                    addHardClauseFirstNegVectorTrue(file, a, helperVec);
-                    numClauses = numClauses + 1;
-                    helperVec.clear();
-                }
-            }
-        }
-
-        file << "c Paper 7 Goal Action" << endl;
-        for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
-        {
-            if (goalAction == numActions && precIndex == htn->gSize)
-            {
-                continue;
-            }
-            if (varToPrecToSupport[goalAction][precIndex] != nullptr)
-            {
-                for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++)
-                {
-                    helperVec.push_back(orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
-                    //helperVec.push_back(helperVariableCounter);
-                    //addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
-                    //addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[goalAction][precIndex]->at(adderIndex).second);
-                    //numClauses = numClauses + 2;
-                    //helperVariableCounter = helperVariableCounter + 1;
-                }
-                addHardClauseFirstNegVectorTrue(file, goalAction, helperVec);
-                numClauses = numClauses + 1;
-                helperVec.clear();
-            }
-            else
-            {
-                // Unerfüllbar
-                addHardClause(file, 1);
-                addHardClauseNeg(file, 1);
-                return;
             }
         }
 
         file.close();
-        adapt(helperVariableCounter - 1, numClauses, hardClauseCost, filename);
-        //        adapt(supportCounter + numActions + orderingCounter, numClauses, hardClauseCost, filename);
+        adapt(numOrderingAndActionVars, numClauses, hardClauseCost, filename);
 
-        // cout << "Goal has: "<<endl;
-        // for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
-        //     cout << "GList "<<precIndex<< ": " << htn->gList[precIndex] << endl;
-        //     for (int i = 0; i<htn->addToActionSize[htn->gList[precIndex]];i++){
-        //         cout << "Supp by: " << htn->addToAction[htn->gList[precIndex]][i] << endl;
-        //     }
-        // }
-        // for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++) {
-        //         if (n->state[addEffIndex]){
-        //             cout << "State has: " << addEffIndex<<endl;
-        //         }
-        //     }
-        // for (int i = 0; i<varActionToRealAction.size(); i++){
-        //     cout << i << ": " << varActionToRealAction[i]<< endl;
-        // }
-
-        // cout << "Precs of Intermediate: " << endl;
-        // for (int a = goalAction+1; a <= numActions; a++){
-        //     cout << precsIntermediate[a-goalAction-1].size()<<endl;
-        // }
-        // if (n->numAbstract > 0 && n->unconstraintAbstract[0]->task != numActions){
-        //     exit(1);
-        // }
 
         cout << "Num Clauses: " << numClauses << endl;
 
-        for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
-        {
-            for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex + 1]; a++)
-            {
-                int action = varActionToRealAction[a];
-                for (int precIndex = 0; precIndex < htn->numPrecs[action] + 1; precIndex++)
-                {
-                    delete varToPrecToSupport[a][precIndex];
-                }
-                delete[] varToPrecToSupport[a];
-            }
-        }
-
-        for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
-        {
-            delete varToPrecToSupport[goalAction][precIndex];
-        }
-        delete[] varToPrecToSupport[goalAction];
-
-        if (numSteps > 2)
-        {
-            for (int interAction = 1; interAction < numSteps - 2; interAction++)
-            {
-                delete varToPrecToSupport[goalAction + interAction][0];
-                delete[] varToPrecToSupport[goalAction + interAction];
-            }
-        }
-        delete[] varToPrecToSupport;
-
-        firstActionOfEachStep.clear();
-        varActionToRealAction.clear();
-        for (auto &innerVector : precsIntermediate)
+        //Todo delete
+        initalActionAdds.clear();
+        artificiallyActionsBeforeStep.clear();
+        for (auto &innerVector : stepToActionsVarReal)
         {
             innerVector.clear();
         }
-        precsIntermediate.clear();
-        for (auto &innerVector : delsIntermediate)
+        stepToActionsVarReal.clear();
+        for (auto &innerVector : precsArtificial)
         {
             innerVector.clear();
         }
-        delsIntermediate.clear();
+        precsArtificial.clear();
+        for (auto &innerVector : delsArtificial)
+        {
+            innerVector.clear();
+        }
+        delsArtificial.clear();
 
-        // cout << "Num Actions: " << numActions << endl;
-        // cout << "Num Clauses: " << numClauses << endl;
-        // cout << "Step 6+7 Percent of Clauses: " << fixed << setprecision(4) <<
-        //     1-((oldClauses) / static_cast<double>(numClauses)) << endl;
-        // cout << "Step 5 Percent of Clauses: " << fixed << setprecision(4) <<
-        //     ((oldClauses- s5Clauses) / static_cast<double>(numClauses)) << endl;
-        // cout << "Step 1-4 Percent of Clauses: " << fixed << setprecision(4) <<
-        //     ((s5Clauses) / static_cast<double>(numClauses)) << endl;
+        for (int a = 1; a<=numActions; a++)
+        {
+            delete[] orderingArray[a];
+        }
+        delete[] orderingArray;      
     }
+
+    // void makeFile(const std::string &filename, searchNode *n)
+    // {
+    //     int numActions = getNumActions(n);
+
+    //     if (numActions == -1)
+    //     {
+    //         ofstream file(filename);
+    //         if (!file)
+    //         {
+    //             cerr << "Error: Could not open file." << std::endl;
+    //             return;
+    //         }
+    //         file << "p wcnf 2 1" << endl;
+    //         file << "2 1 2 0" << endl;
+    //         file.close();
+    //         return;
+    //     }
+
+    //     int goalAction = numActions;
+    //     int numSteps = firstActionOfEachStep.size();
+    //     //numActions = numActions + 2*(numSteps - 2); // intermediate actions between steps without one for the goal and inital action
+    //     numActions = numActions + numSteps - 3; // intermediate actions between steps without one for the goal and inital action
+
+    //     cout << "Num Actions: " << numActions << endl;
+
+    //     actionCost = numActions*numActions+1;
+    //     hardClauseCost = (numActions+1) * actionCost + 1;
+    //     unsigned long long int numClauses = 0;
+    //     int **orderingArray = new int *[numActions + 1];
+    //     int orderingCounter = 1;
+
+    //     for (int a1 = 1; a1 <= numActions; a1++)
+    //     {
+    //         orderingArray[a1] = new int[numActions + 1];
+    //         for (int a2 = 1; a2 <= numActions; a2++)
+    //         {
+    //             orderingArray[a1][a2] = numActions + orderingCounter;
+    //             orderingCounter++;
+    //         }
+    //     }
+
+    //     ofstream file(filename);
+    //     if (!file)
+    //     {
+    //         cerr << "Error: Could not open file." << std::endl;
+    //         return;
+    //     }
+
+    //     file << pad_string_to_32_bytes("Hello There");
+
+    //     file << "c Paper 2" << endl;
+    //     // Paper (2)
+    //     addHardClause(file, 1);
+    //     addHardClause(file, goalAction);
+    //     numClauses = numClauses + 2;
+
+    //     //add all intermediate actions as hard-clauses
+    //     for (int a = goalAction+1; a <= numActions; a++){
+    //         addHardClause(file, a);
+    //         numClauses++;
+    //     }
+
+    //     file << "c Paper 1+3" << endl;
+    //     // Paper (1) + (3) + Softclauses (2)
+    //     for (int a1 = 1; a1 <= numActions; a1++)
+    //     {
+    //         for (int a2 = 1; a2 <= numActions; a2++)
+    //         {
+    //             if (a2 == a1)
+    //             {
+    //                 addHardClauseNeg(file, orderingArray[a1][a2]); // Paper (1)
+    //                 numClauses++;
+    //                 continue;
+    //             }
+    //             addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a1); // Paper (3)
+    //             addHardClauseFirstNegSecTrue(file, orderingArray[a1][a2], a2); // Paper (3)
+    //             addNegatedOrdering(file, orderingArray[a1][a2]);
+    //             numClauses = numClauses + 3;
+    //         }
+    //     }
+
+    //     file << "c Paper 4" << endl;
+    //     // Paper (4)
+    //     for (int a = 2; a <= numActions; a++)
+    //     {
+    //         if (a == goalAction)
+    //         {
+    //             continue;
+    //         }
+    //         addHardClauseFirstNegSecTrue(file, a, orderingArray[1][a]);
+    //         addHardClauseFirstNegSecTrue(file, a, orderingArray[a][goalAction]);
+    //         numClauses = numClauses + 2;
+    //     }
+
+    //     timeval tp;
+    //     gettimeofday(&tp, NULL);
+    //     long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+
+    //     int s5Clauses = numClauses;
+    //     file << "c Paper 5" << endl;
+    //     // Paper (5)
+    //     // for (int bpi1 = 2; bpi1< numSteps-1; bpi1++){
+    //     //     for (int a1 = firstActionOfEachStep[bpi1]; a1 < firstActionOfEachStep[bpi1+1]; a1++){
+    //     //         for (int bpi2 = bpi1; bpi2< numSteps-1; bpi2++){
+    //     //             for (int a2 = firstActionOfEachStep[bpi2]; a2 < firstActionOfEachStep[bpi2+1]; a2++){
+    //     //                 if (a2 == a1){
+    //     //                     continue;
+    //     //                 }
+    //     //                 for (int a3 = firstActionOfEachStep[bpi2]; a3 < goalAction; a3++){
+    //     //                     if (a2 == a3){
+    //     //                         continue;
+    //     //                     }
+    //     //                     addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+    //     //                     numClauses = numClauses+1;
+    //     //                 }
+    //     //             }
+    //     //         }
+    //     //     }
+    //     // }
+
+    //     for (int a1 = 1; a1 <= numActions; a1++)
+    //     {
+    //         for (int a2 = 1; a2 <= numActions; a2++)
+    //         {
+    //             for (int a3 = 1; a3 <= numActions; a3++)
+    //             {
+    //                 addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+    //                 numClauses = numClauses+1;
+    //             }
+    //         }
+    //     }
+
+
+    //     // for (int a1 = 1; a1 <= numActions; a1++){
+    //     //     // if (a1 == goalAction){
+    //     //     //     continue;
+    //     //     // }
+    //     //     for (int a2 = 1; a2 <= numActions; a2++){
+    //     //         // if (a2 == goalAction){
+    //     //         //     continue;
+    //     //         // }
+    //     //         for (int a3 = 1; a3 <= numActions; a3++){
+    //     //             // if (a3 == goalAction){
+    //     //             //     continue;
+    //     //             // }
+    //     //             addHardClauseTwoNegOneTrue(file, orderingArray[a1][a2], orderingArray[a2][a3], orderingArray[a1][a3]);
+    //     //             numClauses = numClauses+1;
+    //     //         }
+    //     //     }
+    //     // }
+
+    //     gettimeofday(&tp, NULL);
+    //     long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+    //     getNumTime = getNumTime + currentT - startT;
+
+    //     file << "c Paper Soft-Clauses" << endl;
+    //     // Paper soft-clauses 1
+    //     for (int a = 2; a < goalAction; a++)
+    //     {
+    //         addNegatedAction(file, a);
+    //         numClauses++;
+    //     }
+
+    //     // adding layering
+    //     file << "c Layering" << endl;
+    //     for (int bpi = 1; bpi< numSteps-1; bpi++){
+    //         for (int a = firstActionOfEachStep[bpi]; a < firstActionOfEachStep[bpi+1]; a++){
+    //             cout << a << endl;
+    //             if (bpi != 1){
+    //                 addHardClauseFirstNegSecTrue(file, a, orderingArray[goalAction+bpi][a]);
+    //             }
+    //             if (bpi +1 != numSteps){
+    //                 addHardClauseFirstNegSecTrue(file, a, orderingArray[a][goalAction+bpi+1]);
+    //             }
+    //         }
+    //     }
+
+    //     // support array
+    //     int supportCounter = 1;
+    //     vector<pair<int, int>> ***varToPrecToSupport = new vector<pair<int, int>> **[numActions + 1];
+
+    //     for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
+    //     {
+    //         for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex + 1]; a++)
+    //         {
+    //             int action = varActionToRealAction[a];
+    //             varToPrecToSupport[a] = new vector<pair<int, int>> *[htn->numPrecs[action]];
+    //             for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
+    //             {
+    //                 varToPrecToSupport[a][precIndex] = new vector<pair<int, int>>();
+    //             }
+    //             // if (breakPointIndex == 1)
+    //             // {
+    //             //     varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+    //             //     supportCounter = supportCounter + 1;
+    //             // }
+    //             // else
+    //             // {
+    //             //     varToPrecToSupport[a][htn->numPrecs[action]]->push_back(make_pair(goalAction + breakPointIndex - 1, supportCounter + numActions + orderingCounter));
+    //             //     supportCounter = supportCounter + 1;
+    //             // }
+    //             for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
+    //             {
+    //                 if (n->state[addEffIndex])
+    //                 {
+    //                     if (addInDelInt(breakPointIndex, addEffIndex) != -1)
+    //                     {
+    //                         continue;
+    //                     }
+    //                     for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
+    //                     {
+    //                         if (addEffIndex == htn->precLists[action][precIndex])
+    //                         {
+    //                             varToPrecToSupport[a][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+    //                             supportCounter = supportCounter + 1;
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //             for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++)
+    //             {
+    //                 int prec = htn->precLists[action][precIndex];
+    //                 int suppIndexStart = 2;
+    //                 int temp = addInDelInt(breakPointIndex, prec);
+    //                 if (temp != -1)
+    //                 {
+    //                     suppIndexStart = firstActionOfEachStep[2 + temp];
+    //                 }
+    //                 for (int suppIndex = suppIndexStart; suppIndex < firstActionOfEachStep[breakPointIndex + 1]; suppIndex++)
+    //                 {
+    //                     if (suppIndex == a)
+    //                     {
+    //                         continue;
+    //                     }
+    //                     int support = varActionToRealAction[suppIndex];
+    //                     for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
+    //                     {
+    //                         if (htn->addLists[support][addEffIndex] == prec)
+    //                         {
+    //                             varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
+    //                             supportCounter = supportCounter + 1;
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     varToPrecToSupport[goalAction] = new vector<pair<int, int>> *[htn->gSize];
+    //     for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+    //     {
+    //         varToPrecToSupport[goalAction][precIndex] = new vector<pair<int, int>>();
+    //     }
+
+    //     supportCounter = supportCounter + 1;
+    //     for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
+    //     {
+    //         if (n->state[addEffIndex])
+    //         {
+    //             if (addInDelInt(numSteps - 1, addEffIndex) != -1)
+    //             {
+    //                 continue;
+    //             }
+    //             for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+    //             {
+    //                 if (addEffIndex == htn->gList[precIndex])
+    //                 {
+    //                     varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+    //                     supportCounter = supportCounter + 1;
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+    //     {
+    //         int prec = htn->gList[precIndex];
+    //         int suppIndexStart = 2;
+    //         int temp = addInDelInt(numSteps - 1, prec);
+    //         if (temp != -1)
+    //         {
+    //             suppIndexStart = firstActionOfEachStep[2 + temp];
+    //         }
+    //         for (int suppIndex = suppIndexStart; suppIndex < goalAction; suppIndex++)
+    //         {
+    //             int support = varActionToRealAction[suppIndex];
+    //             for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
+    //             {
+    //                 if (htn->addLists[support][addEffIndex] == prec)
+    //                 {
+    //                     varToPrecToSupport[goalAction][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
+    //                     supportCounter = supportCounter + 1;
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     for (int a = goalAction + 1; a <= numActions; a++)
+    //     {
+    //         varToPrecToSupport[a] = new vector<pair<int, int>> *[precsIntermediate[a - goalAction - 1].size()];
+    //         for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
+    //         {
+    //             varToPrecToSupport[a][precIndex] = new vector<pair<int, int>>();
+    //         }
+    //         for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++)
+    //         {
+    //             if (n->state[addEffIndex])
+    //             {
+    //                 if (addInDelInt(a - goalAction, addEffIndex) != -1)
+    //                 {
+    //                     continue;
+    //                 }
+    //                 for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
+    //                 {
+    //                     if (addEffIndex == precsIntermediate[a - goalAction - 1][precIndex])
+    //                     {
+    //                         varToPrecToSupport[a][precIndex]->push_back(make_pair(1, supportCounter + numActions + orderingCounter));
+    //                         supportCounter = supportCounter + 1;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         for (int precIndex = 0; precIndex < precsIntermediate[a - goalAction - 1].size(); precIndex++)
+    //         {
+    //             int prec = precsIntermediate[a - goalAction - 1][precIndex];
+    //             int suppIndexStart = 2;
+    //             int temp = addInDelInt(a - goalAction, prec);
+    //             if (temp != -1)
+    //             {
+    //                 suppIndexStart = firstActionOfEachStep[2 + temp];
+    //             }
+    //             for (int suppIndex = suppIndexStart; suppIndex < firstActionOfEachStep[a - goalAction + 1]; suppIndex++)
+    //             {
+    //                 int support = varActionToRealAction[suppIndex];
+    //                 for (int addEffIndex = 0; addEffIndex < htn->numAdds[support]; addEffIndex++)
+    //                 {
+    //                     if (htn->addLists[support][addEffIndex] == prec)
+    //                     {
+    //                         varToPrecToSupport[a][precIndex]->push_back(make_pair(suppIndex, supportCounter + numActions + orderingCounter));
+    //                         supportCounter = supportCounter + 1;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     // for (int i = 0; i<varActionToRealAction.size(); i++){
+    //     //     cout << i << ": " << varActionToRealAction[i]<< endl;
+    //     // }
+    //     // cout <<"-------------------" << endl;
+    //     // for(int a = 2; a<goalAction; a++){
+    //     //     cout << "Process Action " << a <<":"<<endl;
+    //     //     int action = varActionToRealAction[a];
+    //     //     for (int precIndex = 0; precIndex < htn->numPrecs[action]; precIndex++) {
+    //     //         cout << "---Precondition " << htn->precLists[action][precIndex] <<":"<<endl<<"------";
+    //     //         for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precIndex]->size(); adderIndex++){
+    //     //             cout << "("<<varToPrecToSupport[a][precIndex]->at(adderIndex).first << ", " << varToPrecToSupport[a][precIndex]->at(adderIndex).second << "), ";
+    //     //         }
+    //     //         cout << endl;
+    //     //     }
+    //     //     cout << "---Precondition Special:"<<endl<<"------";
+    //     //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][htn->numPrecs[action]]->size(); adderIndex++){
+    //     //         cout << varToPrecToSupport[a][htn->numPrecs[action]]->at(adderIndex).first << ", "<< varToPrecToSupport[a][htn->numPrecs[action]]->at(adderIndex).second;
+    //     //     }
+    //     //     cout << endl;
+    //     // }
+
+    //     // for(int a = goalAction+1; a<=numActions; a++){
+    //     //     cout << "Process Intermediate Action " << a <<":"<<endl;
+    //     //     int action = varActionToRealAction[a];
+    //     //     for (int precIndex = 0; precIndex < precsIntermediate[a-1-goalAction].size(); precIndex++) {
+    //     //         cout << "---Precondition " << precsIntermediate[a-1-goalAction][precIndex] <<":"<<endl<<"------";
+    //     //         for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precIndex]->size(); adderIndex++){
+    //     //             cout << varToPrecToSupport[a][precIndex]->at(adderIndex).first << ", ";
+    //     //         }
+    //     //         cout << endl;
+    //     //     }
+    //     //     cout << "---Precondition Special:"<<endl<<"------";
+    //     //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][precsIntermediate[a-1-goalAction].size()]->size(); adderIndex++){
+    //     //         cout << varToPrecToSupport[a][precsIntermediate[a-1-goalAction].size()]->at(adderIndex).first << ", ";
+    //     //     }
+    //     //     cout << endl;
+    //     // }
+
+    //     // cout << "Process Goal " << ":"<<endl;
+    //     //     for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
+    //     //         cout << "---Precondition " << htn->gList[precIndex] <<":"<<endl<<"------";
+    //     //         for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++){
+    //     //             cout << varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first << ", ";
+    //     //         }
+    //     //         cout << endl;
+    //     //     }
+    //     //     cout << "---Precondition Special:"<<endl<<"------";
+    //     //     for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][htn->gSize]->size(); adderIndex++){
+    //     //         cout << varToPrecToSupport[goalAction][htn->gSize]->at(adderIndex).first << ", ";
+    //     //     }
+    //     //     cout << endl;
+
+    //     // file << "c Paper 6" << endl;
+    //     // // Paper(6)
+    //     // if (numActions > goalAction){ //if we have no steps between init and goal we will have no deleters
+    //     //     for (int breakPointIndex = 1; breakPointIndex < numSteps-2; breakPointIndex++){
+    //     //         for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex+1]; a++){
+    //     //             int action = varActionToRealAction[a];
+    //     //             int varSuppAction = varToPrecToSupport[a][htn->numPrecs[action]]->back().first;
+    //     //             int varDelAction = goalAction+breakPointIndex;
+    //     //             addHardClauseTwoNegTwoTrue(file, varToPrecToSupport[a][htn->numPrecs[action]]->back().second, varDelAction, orderingArray[varDelAction][varSuppAction],
+    //     //                 orderingArray[a][varDelAction]); //Could be handeled differntly because the delete Action needs to be true as well, so we could just
+    //     //                 //use the orderings
+    //     //             numClauses = numClauses +1;
+    //     //         }
+    //     //     }
+    //     // } // For the paper: in 6 xak must be distinct from ai, otherwise this could block itsself
+
+    //     file << "c Paper 7" << endl;
+    //     // Paper (7)
+    //     vector<int> helperVec;
+    //     int helperVariableCounter = numActions + orderingCounter + supportCounter + 1;
+    //     for (int a = 2; a <= numActions; a++)
+    //     {
+    //         int tempNumPrecs;
+    //         if (a < goalAction)
+    //         {
+    //             tempNumPrecs = htn->numPrecs[varActionToRealAction[a]];
+    //         }
+    //         else if (a == goalAction)
+    //         {
+    //             continue;
+    //         }
+    //         else
+    //         {
+    //             tempNumPrecs = precsIntermediate[a - goalAction - 1].size();
+    //         }
+    //         for (int preIndex = 0; preIndex <= tempNumPrecs; preIndex++)
+    //         {
+    //             if (varToPrecToSupport[a][preIndex] != nullptr)
+    //             {
+    //                 if (varToPrecToSupport[a][preIndex]->size() == 0 && preIndex < tempNumPrecs && a < goalAction)
+    //                 {
+    //                     helperVec.clear();
+    //                     // cout << "Does this happen? " << endl;
+    //                     addHardClauseNeg(file, a);
+    //                     numClauses = numClauses + 1;
+    //                     continue;
+    //                     // cout << "Size 0: " << a << " " << preIndex<< " " << tempNumPrecs << " " << htn->precLists[varActionToRealAction[a]][preIndex] << endl;
+    //                     // for (int i = 0; i<htn->addToActionSize[htn->precLists[varActionToRealAction[a]][preIndex]];i++){
+    //                     //     cout << "Supp by: " << htn->addToAction[htn->precLists[varActionToRealAction[a]][preIndex]][i] << endl;
+    //                     // }
+    //                 }
+    //                 for (int adderIndex = 0; adderIndex < varToPrecToSupport[a][preIndex]->size(); adderIndex++)
+    //                 {
+    //                     helperVec.push_back(helperVariableCounter);
+    //                     addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[a][preIndex]->at(adderIndex).first][a]);
+    //                     //addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[a][preIndex]->at(adderIndex).second);
+    //                     numClauses = numClauses + 2;
+    //                     helperVariableCounter = helperVariableCounter + 1;
+    //                 }
+    //                 addHardClauseFirstNegVectorTrue(file, a, helperVec);
+    //                 numClauses = numClauses + 1;
+    //                 helperVec.clear();
+    //             }
+    //         }
+    //     }
+
+    //     file << "c Paper 7 Goal Action" << endl;
+    //     for (int precIndex = 0; precIndex < htn->gSize; precIndex++)
+    //     {
+    //         if (varToPrecToSupport[goalAction][precIndex] != nullptr)
+    //         {
+    //             for (int adderIndex = 0; adderIndex < varToPrecToSupport[goalAction][precIndex]->size(); adderIndex++)
+    //             {
+    //                 helperVec.push_back(orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
+    //                 //helperVec.push_back(helperVariableCounter);
+    //                 //addHardClauseFirstNegSecTrue(file, helperVariableCounter, orderingArray[varToPrecToSupport[goalAction][precIndex]->at(adderIndex).first][goalAction]);
+    //                 //addHardClauseFirstNegSecTrue(file, helperVariableCounter, varToPrecToSupport[goalAction][precIndex]->at(adderIndex).second);
+    //                 //numClauses = numClauses + 2;
+    //                 //helperVariableCounter = helperVariableCounter + 1;
+    //             }
+    //             addHardClauseFirstNegVectorTrue(file, goalAction, helperVec);
+    //             numClauses = numClauses + 1;
+    //             helperVec.clear();
+    //         }
+    //         else
+    //         {
+    //             // Unerfüllbar
+    //             addHardClause(file, 1);
+    //             addHardClauseNeg(file, 1);
+    //             return;
+    //         }
+    //     }
+
+    //     file.close();
+    //     adapt(helperVariableCounter - 1, numClauses, hardClauseCost, filename);
+    //     //        adapt(supportCounter + numActions + orderingCounter, numClauses, hardClauseCost, filename);
+
+    //     // cout << "Goal has: "<<endl;
+    //     // for (int precIndex = 0; precIndex < htn->gSize; precIndex++) {
+    //     //     cout << "GList "<<precIndex<< ": " << htn->gList[precIndex] << endl;
+    //     //     for (int i = 0; i<htn->addToActionSize[htn->gList[precIndex]];i++){
+    //     //         cout << "Supp by: " << htn->addToAction[htn->gList[precIndex]][i] << endl;
+    //     //     }
+    //     // }
+    //     // for (int addEffIndex = 0; addEffIndex < htn->numVars; addEffIndex++) {
+    //     //         if (n->state[addEffIndex]){
+    //     //             cout << "State has: " << addEffIndex<<endl;
+    //     //         }
+    //     //     }
+    //     // for (int i = 0; i<varActionToRealAction.size(); i++){
+    //     //     cout << i << ": " << varActionToRealAction[i]<< endl;
+    //     // }
+
+    //     // cout << "Precs of Intermediate: " << endl;
+    //     // for (int a = goalAction+1; a <= numActions; a++){
+    //     //     cout << precsIntermediate[a-goalAction-1].size()<<endl;
+    //     // }
+    //     // if (n->numAbstract > 0 && n->unconstraintAbstract[0]->task != numActions){
+    //     //     exit(1);
+    //     // }
+
+    //     cout << "Num Clauses: " << numClauses << endl;
+
+    //     for (int breakPointIndex = 1; breakPointIndex < numSteps - 1; breakPointIndex++)
+    //     {
+    //         for (int a = firstActionOfEachStep[breakPointIndex]; a < firstActionOfEachStep[breakPointIndex + 1]; a++)
+    //         {
+    //             int action = varActionToRealAction[a];
+    //             for (int precIndex = 0; precIndex < htn->numPrecs[action] + 1; precIndex++)
+    //             {
+    //                 delete varToPrecToSupport[a][precIndex];
+    //             }
+    //             delete[] varToPrecToSupport[a];
+    //         }
+    //     }
+
+    //     for (int precIndex = 0; precIndex < htn->gSize + 1; precIndex++)
+    //     {
+    //         delete varToPrecToSupport[goalAction][precIndex];
+    //     }
+    //     delete[] varToPrecToSupport[goalAction];
+
+    //     if (numSteps > 2)
+    //     {
+    //         for (int interAction = 1; interAction < numSteps - 2; interAction++)
+    //         {
+    //             delete varToPrecToSupport[goalAction + interAction][0];
+    //             delete[] varToPrecToSupport[goalAction + interAction];
+    //         }
+    //     }
+    //     delete[] varToPrecToSupport;
+
+    //     firstActionOfEachStep.clear();
+    //     varActionToRealAction.clear();
+    //     for (auto &innerVector : precsIntermediate)
+    //     {
+    //         innerVector.clear();
+    //     }
+    //     precsIntermediate.clear();
+    //     for (auto &innerVector : delsIntermediate)
+    //     {
+    //         innerVector.clear();
+    //     }
+    //     delsIntermediate.clear();
+
+    //     // cout << "Num Actions: " << numActions << endl;
+    //     // cout << "Num Clauses: " << numClauses << endl;
+    //     // cout << "Step 6+7 Percent of Clauses: " << fixed << setprecision(4) <<
+    //     //     1-((oldClauses) / static_cast<double>(numClauses)) << endl;
+    //     // cout << "Step 5 Percent of Clauses: " << fixed << setprecision(4) <<
+    //     //     ((oldClauses- s5Clauses) / static_cast<double>(numClauses)) << endl;
+    //     // cout << "Step 1-4 Percent of Clauses: " << fixed << setprecision(4) <<
+    //     //     ((s5Clauses) / static_cast<double>(numClauses)) << endl;
+    // }
 
 public:
     long buildTime = 0;
@@ -892,7 +1285,7 @@ public:
         gettimeofday(&tp, NULL);
         long startT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
 
-        makeFile("../RamDisk/SatFile.wcnf", n);
+        makeSATFile("../RamDisk/SatFile.wcnf", n);
 
         gettimeofday(&tp, NULL);
         long currentT = tp.tv_sec * 1000 + tp.tv_usec / 1000;
