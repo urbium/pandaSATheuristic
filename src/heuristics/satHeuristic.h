@@ -420,6 +420,7 @@ namespace progression
                         // addNegatedOrdering(file, orderingArray[a1][a2]);
                         // numClauses = numClauses + 3;
                         numClauses = numClauses + 2;
+                        // comment out 422 and comment in 420+421 for full POP Heuristic
                     }
                 }
             }
