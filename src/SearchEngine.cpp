@@ -36,7 +36,7 @@
 #include "heuristics/rcHeuristics/RCModelFactory.h"
 #include "heuristics/landmarks/lmExtraction/LmFdConnector.h"
 #include "heuristics/landmarks/hhLMCount.h"
-#include "heuristics/rcHeuristics/satRC2.h"
+#include "heuristics/satHeuristic.h"
 #ifndef CMAKE_NO_ILP
 #include "heuristics/dofHeuristics/hhStatisticsCollector.h"
 #endif
@@ -405,7 +405,7 @@ int main(int argc, char *argv[]) {
 				return 1;
 #endif
 			} else if (hName == "SAT"){
-				heuristics[i] = new satRC2(htn, i);
+				heuristics[i] = new satHeuristic(htn, i);
 			} else {
 				cout << "Heuristic type \"" << hName << "\" is unknown." << endl;
 				return 1;

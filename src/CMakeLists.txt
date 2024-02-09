@@ -55,9 +55,6 @@ include_directories("symbolic_search")
 include_directories("heuristics")
 include_directories("intDataStructures")
 include_directories("translation")
-include_directories(/home/alexander/NewpOrjekt/testLoa/EvalMaxSAT/lib/cadical/src)
-include_directories(/home/alexander/NewpOrjekt/testLoa/EvalMaxSAT/lib/MaLib/src)
-include_directories(/home/alexander/NewpOrjekt/testLoa/EvalMaxSAT/lib/EvalMaxSAT/src)
 
 # include_directories("MaLib")
 add_subdirectory(search)
@@ -90,7 +87,6 @@ target_link_libraries(pandaPIengine PUBLIC heuristics)
 target_link_libraries(pandaPIengine PUBLIC hrc)
 target_link_libraries(pandaPIengine PUBLIC hlm)
 target_link_libraries(pandaPIengine PUBLIC translation)
-target_link_libraries(pandaPIengine PUBLIC EvalMaxSAT)
 
 if (BDD)
 	### Build Cudd
